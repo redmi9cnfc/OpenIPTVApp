@@ -11,10 +11,12 @@ object M3uParser {
         var currentLogo = ""
         var currentCategory = ""
         var currentEpgId = ""
+        var currentTvgName = ""
 
         val logoRegex = """tvg-logo="([^"]*)"""".toRegex()
         val categoryRegex = """group-title="([^"]*)"""".toRegex()
         val epgIdRegex = """tvg-id="([^"]*)"""".toRegex()
+        val tvgNameRegex = """tvg-name="([^"]*)"""".toRegex()
 
         reader.useLines { lines ->
             lines.forEach { line ->
@@ -27,15 +29,17 @@ object M3uParser {
                         currentLogo = logoRegex.find(trimmedLine)?.groupValues?.get(1) ?: ""
                         currentCategory = categoryRegex.find(trimmedLine)?.groupValues?.get(1) ?: ""
                         currentEpgId = epgIdRegex.find(trimmedLine)?.groupValues?.get(1) ?: ""
+                        currentTvgName = tvgNameRegex.find(trimmedLine)?.groupValues?.get(1) ?: ""
                     }
                     trimmedLine.startsWith("#EXTGRP:") -> {
                         currentCategory = trimmedLine.substringAfter(":").trim()
                     }
                     trimmedLine.isNotEmpty() && !trimmedLine.startsWith("#") -> {
-                        channels.add(IptvChannel(currentName, trimmedLine, currentLogo, currentCategory, currentEpgId))
+                        channels.add(IptvChannel(currentName, trimmedLine, currentLogo, currentCategory, currentEpgId, currentTvgName))
                         currentName = ""
                         currentLogo = ""
                         currentEpgId = ""
+                        currentTvgName = ""
                     }
                 }
             }

@@ -8,7 +8,12 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 object XmlTvParser {
-    private val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
+    private val dateFormats = listOf(
+        "yyyyMMddHHmmss Z",
+        "yyyyMMddHHmmss",
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd'T'HH:mm:ss'Z'"
+    )
 
     fun parse(inputStream: InputStream): List<EpgProgram> {
         val programs = mutableListOf<EpgProgram>()
@@ -25,28 +30,53 @@ object XmlTvParser {
                 
                 var title = ""
                 var desc = ""
+                var category = ""
+                var icon = ""
 
-                while (!(parser.next() == XmlPullParser.END_TAG && parser.name == "programme")) {
-                    if (parser.eventType == XmlPullParser.START_TAG) {
+                while (true) {
+                    val nextEvent = parser.next()
+                    if (nextEvent == XmlPullParser.END_TAG && parser.name == "programme") break
+                    if (nextEvent == XmlPullParser.START_TAG) {
                         when (parser.name) {
                             "title" -> title = parser.nextText()
                             "desc" -> desc = parser.nextText()
+                            "category" -> category = parser.nextText()
+                            "icon" -> icon = parser.getAttributeValue(null, "src") ?: ""
                         }
                     }
                 }
 
-                try {
-                    val startDate = dateFormat.parse(startStr)
-                    val stopDate = dateFormat.parse(stopStr)
-                    if (startDate != null && stopDate != null) {
-                        programs.add(EpgProgram(channelId, title, startDate, stopDate, desc))
-                    }
-                } catch (e: Exception) {
-                    // Skip malformed dates
+                val startTime = parseDate(startStr)
+                val endTime = parseDate(stopStr)
+
+                if (startTime != null && endTime != null && title.isNotEmpty()) {
+                    programs.add(EpgProgram(
+                        channelId = channelId,
+                        title = title,
+                        startTime = startTime,
+                        endTime = endTime,
+                        description = desc,
+                        category = category,
+                        iconUrl = icon
+                    ))
                 }
             }
             eventType = parser.next()
         }
         return programs
+    }
+
+    private fun parseDate(dateStr: String?): Long? {
+        if (dateStr == null) return null
+        val cleanDate = dateStr.trim()
+        for (format in dateFormats) {
+            try {
+                val sdf = SimpleDateFormat(format, Locale.US)
+                return sdf.parse(cleanDate)?.time
+            } catch (e: Exception) {
+                // Try next
+            }
+        }
+        return null
     }
 }

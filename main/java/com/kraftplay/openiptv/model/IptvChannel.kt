@@ -9,5 +9,7 @@ data class IptvChannel(
     val logoUrl: String? = null,
     val category: String? = null,
     val epgId: String? = null,
-    var isFavorite: Boolean = false
+    val tvgName: String? = null,
+    var isFavorite: Boolean = false,
+    var isLocked: Boolean = false
 )

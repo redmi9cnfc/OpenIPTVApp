@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -115,6 +116,13 @@ fun SettingsScreen(
                     }
                 }
 
+                Text(stringResource(R.string.group_sorting), modifier = Modifier.padding(top = 8.dp))
+                val sortOrder by viewModel.groupSortOrder.collectAsState()
+                Row {
+                    FilterChip(selected = sortOrder == "Provider", onClick = { viewModel.updateSetting("group_sort_order", "Provider") }, label = { Text(stringResource(R.string.sort_provider)) }, modifier = Modifier.padding(end = 4.dp))
+                    FilterChip(selected = sortOrder == "Alphabetical", onClick = { viewModel.updateSetting("group_sort_order", "Alphabetical") }, label = { Text(stringResource(R.string.sort_alphabetical)) }, modifier = Modifier.padding(end = 4.dp))
+                }
+
                 Text(stringResource(R.string.accent_color), modifier = Modifier.padding(top = 8.dp))
                 Row {
                     listOf("Blue", "Green", "Red").forEach { color ->
@@ -130,7 +138,20 @@ fun SettingsScreen(
                 }
 
                 Text("${stringResource(R.string.font_size)}: ${fontSize.toInt()}", modifier = Modifier.padding(top = 8.dp))
-                Slider(value = fontSize, onValueChange = { viewModel.updateSetting("font_size", it) }, valueRange = 10f..24f)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { viewModel.updateSetting("font_size", (fontSize - 1f).coerceAtLeast(10f)) }) {
+                        Icon(Icons.Default.Remove, null)
+                    }
+                    Slider(
+                        value = fontSize, 
+                        onValueChange = { viewModel.updateSetting("font_size", it) }, 
+                        valueRange = 10f..24f,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { viewModel.updateSetting("font_size", (fontSize + 1f).coerceAtMost(24f)) }) {
+                        Icon(Icons.Default.Add, null)
+                    }
+                }
                 
                 SwitchSetting(stringResource(R.string.show_clock), showClock) { viewModel.updateSetting("show_clock", it) }
                 SwitchSetting(stringResource(R.string.hide_playlist_url), hidePlaylistUrl) { viewModel.updateSetting("hide_playlist_url", it) }
@@ -142,7 +163,7 @@ fun SettingsScreen(
                 SwitchSetting(stringResource(R.string.landscape_mode), forceLandscape, stringResource(R.string.landscape_mode_desc)) { viewModel.updateSetting("force_landscape", it) }
                 SwitchSetting(stringResource(R.string.background_playback), backgroundPlayback) { viewModel.updateSetting("background_playback", it) }
                 
-                Text(stringResource(R.string.auto_hide_controls) + ": " + (if(autoHideTimeout == 0) stringResource(R.string.never) else stringResource(R.string.seconds, autoHideTimeout)))
+                Text(stringResource(R.string.auto_hide_info) + ": " + (if(autoHideTimeout == 0) stringResource(R.string.never) else stringResource(R.string.seconds, autoHideTimeout)))
                 Row {
                     listOf(0, 3, 5, 10).forEach { s ->
                         FilterChip(selected = autoHideTimeout == s, onClick = { viewModel.updateSetting("auto_hide_timeout", s) }, label = { Text(if(s==0) stringResource(R.string.never) else stringResource(R.string.seconds, s)) }, modifier = Modifier.padding(end = 4.dp))
@@ -176,7 +197,7 @@ fun SettingsScreen(
                     Text(stringResource(R.string.clear_data))
                 }
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(stringResource(R.string.version) + " 2.0", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                Text(stringResource(R.string.version) + " 3.0", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
             }
         }
     }
