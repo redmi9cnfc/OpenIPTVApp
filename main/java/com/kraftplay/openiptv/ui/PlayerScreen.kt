@@ -5,20 +5,23 @@ import android.content.pm.ActivityInfo
 import android.view.KeyEvent
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -29,6 +32,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -51,27 +57,34 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.*
-
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 @OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(viewModel: MainViewModel, url: String) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val channels by viewModel.filteredChannels.collectAsState()
+    val allChannels by viewModel.allChannels.collectAsState()
     val currentPrograms by viewModel.currentPrograms.collectAsState()
     val nextPrograms by viewModel.nextPrograms.collectAsState()
     val recentChannels by viewModel.recentChannels.collectAsState()
     val channelViewingTimes by viewModel.channelViewingTimes.collectAsState()
-    val globalPassword by viewModel.parentalPassword.collectAsState()
+    
+    val showSourceOpt by viewModel.showSource.collectAsState()
+    val showResolutionOpt by viewModel.showResolution.collectAsState()
+    val showFpsOpt by viewModel.showFps.collectAsState()
+    val resFormatOpt by viewModel.resolutionFormat.collectAsState()
     
     var currentUrl by remember { mutableStateOf(url) }
     val forceLandscape by viewModel.forceLandscape.collectAsState()
-    val backgroundPlayback by viewModel.backgroundPlayback.collectAsState()
-    val autoHideTimeout by viewModel.autoHideTimeout.collectAsState()
+    val fullScreenDefault by viewModel.fullScreenByDefault.collectAsState()
     val bufferingLevel by viewModel.bufferingLevel.collectAsState()
+    val autoHideTimeout by viewModel.autoHideTimeout.collectAsState()
+    val backgroundPlayback by viewModel.backgroundPlayback.collectAsState()
     
     val activity = context as? Activity
     
@@ -83,30 +96,33 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
     var videoCodec by remember { mutableStateOf("Unknown") }
     var audioCodec by remember { mutableStateOf("Unknown") }
     var isPlaying by remember { mutableStateOf(true) }
+    var isBuffering by remember { mutableStateOf(true) }
 
-    var showPasswordDialog by remember { mutableStateOf(false) }
-    var nextUrlAfterPassword by remember { mutableStateOf("") }
-    var tempPassword by remember { mutableStateOf("") }
+    var showPasswordDialog by remember { mutableStateOf<Triple<IptvChannel, String, String>?>(null) }
+    var tempPass by remember { mutableStateOf("") }
     var passwordError by remember { mutableStateOf(false) }
 
     val focusRequester = remember { FocusRequester() }
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-    // Keep screen on and immersive mode
-    DisposableEffect(Unit) {
-        val window = activity?.window
-        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        if (window != null) {
-            val controller = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-            controller.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars() or androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-            controller.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    // Full screen and Orientation logic with better Activity handling
+    LaunchedEffect(forceLandscape, fullScreenDefault) {
+        val window = activity?.window ?: return@LaunchedEffect
+        if (fullScreenDefault) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            controller.hide(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            controller.show(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
         }
-        onDispose {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            if (window != null) {
-                val controller = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-                controller.show(androidx.core.view.WindowInsetsCompat.Type.statusBars() or androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-            }
+        
+        if (forceLandscape) {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 
@@ -125,11 +141,23 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
             repeatMode = Player.REPEAT_MODE_ONE
             addListener(object : Player.Listener {
                 override fun onVideoSizeChanged(videoSize: VideoSize) {
-                    videoQuality = "${videoSize.width}x${videoSize.height}"
+                    videoQuality = if (resFormatOpt == "Labels") {
+                        when {
+                            videoSize.height >= 2160 -> "4K"
+                            videoSize.height >= 1080 -> "Full HD"
+                            videoSize.height >= 720 -> "HD"
+                            else -> "SD"
+                        }
+                    } else {
+                        "${videoSize.width}x${videoSize.height}"
+                    }
                     fps = "60 FPS"
                 }
                 override fun onIsPlayingChanged(playing: Boolean) {
                     isPlaying = playing
+                }
+                override fun onPlaybackStateChanged(state: Int) {
+                    isBuffering = state == Player.STATE_BUFFERING || state == Player.STATE_IDLE
                 }
                 override fun onEvents(player: Player, events: Player.Events) {
                     if (events.contains(Player.EVENT_TRACKS_CHANGED) || events.contains(Player.EVENT_MEDIA_METADATA_CHANGED)) {
@@ -144,15 +172,15 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
     }
 
     LaunchedEffect(decodedUrl) {
+        isBuffering = true
         exoPlayer.setMediaItem(MediaItem.fromUri(decodedUrl))
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
-        val channel = channels.find { it.url == currentUrl }
+        val channel = allChannels.find { it.url == currentUrl }
         channel?.let { viewModel.addToRecent(it) }
         showInfoPanel = true
     }
 
-    // Auto-hide panel effect
     LaunchedEffect(showInfoPanel, autoHideTimeout) {
         if (showInfoPanel && autoHideTimeout > 0) {
             delay(autoHideTimeout * 1000L)
@@ -181,13 +209,14 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
     }
 
     fun switchChannel(next: Boolean) {
-        val index = channels.indexOfFirst { it.url == currentUrl }
+        if (showPasswordDialog != null) return // Prevent multiple dialogs
+        
+        val index = allChannels.indexOfFirst { it.url == currentUrl }
         if (index != -1) {
-            val nextIndex = if (next) (index + 1) % channels.size else (index - 1 + channels.size) % channels.size
-            val nextChannel = channels[nextIndex]
+            val nextIndex = if (next) (index + 1) % allChannels.size else (index - 1 + allChannels.size) % allChannels.size
+            val nextChannel = allChannels[nextIndex]
             if (nextChannel.isLocked) {
-                nextUrlAfterPassword = nextChannel.url
-                showPasswordDialog = true
+                showPasswordDialog = Triple(nextChannel, "play", "")
                 exoPlayer.pause()
             } else {
                 currentUrl = nextChannel.url
@@ -196,16 +225,11 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
         }
     }
 
-    DisposableEffect(forceLandscape) {
-        if (forceLandscape) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        onDispose { activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
-    }
-
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE && !backgroundPlayback) exoPlayer.pause()
             else if (event == Lifecycle.Event.ON_RESUME) {
-                if (!showPasswordDialog) exoPlayer.play()
+                if (showPasswordDialog == null) exoPlayer.play()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -258,10 +282,16 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
             modifier = Modifier.fillMaxSize()
         )
 
+        if (isBuffering) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
+        }
+
         if (showInfoPanel) {
-            val currentChannel = channels.find { it.url == currentUrl }
-            val program = currentPrograms[currentChannel?.name ?: ""] ?: currentPrograms[currentChannel?.epgId ?: ""]
-            val nextProg = nextPrograms[currentChannel?.name ?: ""] ?: nextPrograms[currentChannel?.epgId ?: ""]
+            val currentChannel = allChannels.find { it.url == currentUrl }
+            val program = currentPrograms[currentUrl]
+            val nextProg = nextPrograms[currentUrl]
             val totalTime = channelViewingTimes[currentUrl] ?: 0L
 
             LaunchedEffect(Unit) { focusRequester.requestFocus() }
@@ -270,12 +300,10 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.4f))
             ) {
-                // Top Info
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(16.dp).align(Alignment.TopStart),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                    verticalAlignment = Alignment.CenterVertically) {
                     val hours = totalTime / 3600
                     val minutes = (totalTime % 3600) / 60
                     Text(String.format("%02d:%02d h", hours, minutes), color = Color.White, fontSize = 14.sp)
@@ -286,27 +314,33 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
                     }
                 }
 
-                // Recent Channels
                 if (recentChannels.isNotEmpty()) {
                     LazyRow(
                         modifier = Modifier.fillMaxWidth().padding(top = 48.dp, start = 16.dp, end = 16.dp).align(Alignment.TopCenter),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(recentChannels) { channel ->
-                            RecentChannelCard(channel) {
-                                if (channel.isLocked) {
-                                    nextUrlAfterPassword = channel.url
-                                    showPasswordDialog = true
-                                    exoPlayer.pause()
-                                } else {
-                                    currentUrl = channel.url
+                            var isFocused by remember { mutableStateOf(false) }
+                            RecentChannelCard(
+                                channel = channel,
+                                modifier = Modifier
+                                    .onFocusChanged { isFocused = it.isFocused }
+                                    .scale(if (isFocused) 1.1f else 1f)
+                                    .border(if (isFocused) 2.dp else 0.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small),
+                                onClick = {
+                                    val fullChannel = allChannels.find { it.url == channel.url } ?: channel
+                                    if (fullChannel.isLocked) {
+                                        showPasswordDialog = Triple(fullChannel, "play", "")
+                                        exoPlayer.pause()
+                                    } else {
+                                        currentUrl = fullChannel.url
+                                    }
                                 }
-                            }
+                            )
                         }
                     }
                 }
 
-                // Central Controls
                 Row(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -320,6 +354,7 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
                             .focusRequester(focusRequester)
                             .onFocusChanged { fastForwardFocused = it.isFocused }
                             .background(if (fastForwardFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, MaterialTheme.shapes.extraLarge)
+                            .scale(if (fastForwardFocused) 1.2f else 1f)
                     ) {
                         Icon(Icons.Default.FastForward, contentDescription = stringResource(R.string.jump_to_live), tint = if(fastForwardFocused) MaterialTheme.colorScheme.primary else Color.White, modifier = Modifier.size(48.dp))
                     }
@@ -331,6 +366,7 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
                             .size(80.dp)
                             .onFocusChanged { playPauseFocused = it.isFocused }
                             .background(if (playPauseFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, MaterialTheme.shapes.extraLarge)
+                            .scale(if (playPauseFocused) 1.2f else 1f)
                     ) {
                         Icon(
                             imageVector = if(isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -341,7 +377,6 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
                     }
                 }
 
-                // Bottom Info Panel
                 Column(modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
@@ -379,13 +414,14 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
                                 Text("No program information", color = Color.Gray, fontSize = 14.sp)
                             }
                         }
-
+                        
                         var favoriteFocused by remember { mutableStateOf(false) }
                         IconButton(
                             onClick = { currentChannel?.let { viewModel.toggleFavorite(it.url) } },
                             modifier = Modifier
                                 .onFocusChanged { favoriteFocused = it.isFocused }
                                 .background(if (favoriteFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, MaterialTheme.shapes.extraLarge)
+                                .scale(if (favoriteFocused) 1.2f else 1f)
                         ) {
                             Icon(
                                 imageVector = if (currentChannel?.isFavorite == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -399,39 +435,74 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
                     
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Column {
-                            Text("${stringResource(R.string.resolution)}: $videoQuality", color = Color.Green, fontSize = 12.sp)
+                            if (showResolutionOpt) {
+                                Text("${stringResource(R.string.resolution)}: $videoQuality", color = Color.Green, fontSize = 12.sp)
+                            }
                             Text("${stringResource(R.string.video)}: $videoCodec | ${stringResource(R.string.audio)}: $audioCodec", color = Color.LightGray, fontSize = 12.sp)
                         }
                         Column(horizontalAlignment = Alignment.End) {
-                            Text("${stringResource(R.string.bitrate)}: $bitRate | ${stringResource(R.string.fps)}: $fps", color = Color.LightGray, fontSize = 12.sp)
-                            val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
-                            Text(
-                                text = "${stringResource(R.string.source)}: ${currentUrl.take(40)}...",
-                                color = Color.Gray,
-                                fontSize = 10.sp,
-                                maxLines = 1,
-                                modifier = Modifier.clickable {
-                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(currentUrl))
-                                }
-                            )
+                            val bitrateStr = "${stringResource(R.string.bitrate)}: $bitRate"
+                            val fpsStr = if(showFpsOpt) " | ${stringResource(R.string.fps)}: $fps" else ""
+                            Text(bitrateStr + fpsStr, color = Color.LightGray, fontSize = 12.sp)
+                            
+                            if (showSourceOpt) {
+                                val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+                                Text(
+                                    text = "${stringResource(R.string.source)}: ${currentUrl.take(40)}...",
+                                    color = Color.Gray,
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    modifier = Modifier.clickable {
+                                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(currentUrl))
+                                    }
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        if (showPasswordDialog) {
+        if (showPasswordDialog != null) {
+            val (channel, action, _) = showPasswordDialog!!
+            val savedPass = viewModel.getChannelPassword(channel.url) ?: ""
+            
+            val onCheck = {
+                if (tempPass == savedPass) {
+                    currentUrl = channel.url
+                    viewModel.updateSetting("last_channel_url", currentUrl)
+                    showPasswordDialog = null
+                    tempPass = ""
+                    exoPlayer.play()
+                } else {
+                    passwordError = true
+                }
+            }
+
             AlertDialog(
-                onDismissRequest = { showPasswordDialog = false; tempPassword = ""; passwordError = false; exoPlayer.play() },
+                onDismissRequest = { 
+                    showPasswordDialog = null
+                    tempPass = ""
+                    passwordError = false
+                    exoPlayer.play() 
+                },
                 title = { Text(stringResource(R.string.enter_password)) },
                 text = {
                     Column {
                         TextField(
-                            value = tempPassword,
-                            onValueChange = { tempPassword = it },
+                            value = tempPass,
+                            onValueChange = { tempPass = it },
                             label = { Text(stringResource(R.string.password)) },
                             isError = passwordError,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().onKeyEvent {
+                                if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER || it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
+                                    if (it.nativeKeyEvent.action == KeyEvent.ACTION_UP) onCheck()
+                                    true
+                                } else false
+                            },
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { onCheck() })
                         )
                         if (passwordError) {
                             Text(stringResource(R.string.incorrect_password), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
@@ -439,20 +510,15 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = {
-                        if (tempPassword == globalPassword) {
-                            currentUrl = nextUrlAfterPassword
-                            viewModel.updateSetting("last_channel_url", currentUrl)
-                            showPasswordDialog = false
-                            tempPassword = ""
-                            exoPlayer.play()
-                        } else {
-                            passwordError = true
-                        }
-                    }) { Text("OK") }
+                    TextButton(onClick = onCheck) { Text("OK") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showPasswordDialog = false; tempPassword = ""; passwordError = false; exoPlayer.play() }) { Text(stringResource(R.string.cancel)) }
+                    TextButton(onClick = { 
+                        showPasswordDialog = null
+                        tempPass = ""
+                        passwordError = false
+                        exoPlayer.play() 
+                    }) { Text(stringResource(R.string.cancel)) }
                 }
             )
         }
@@ -460,9 +526,9 @@ fun PlayerScreen(viewModel: MainViewModel, url: String) {
 }
 
 @Composable
-fun RecentChannelCard(channel: IptvChannel, onClick: () -> Unit) {
+fun RecentChannelCard(channel: IptvChannel, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.size(width = 120.dp, height = 80.dp).clickable { onClick() },
+        modifier = modifier.size(width = 120.dp, height = 80.dp).clickable { onClick() },
         colors = CardDefaults.cardColors(containerColor = Color.DarkGray.copy(alpha = 0.8f))
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {

@@ -14,20 +14,36 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.BufferedInputStream
+import java.io.File
 import java.util.*
+import java.util.concurrent.TimeUnit
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .build()
+        
     private val prefs = application.getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+    private val cacheFile = File(application.cacheDir, "channels_cache.json")
     
-    private val _channels = MutableStateFlow<List<IptvChannel>>(emptyList())
+    private val _rawChannels = MutableStateFlow<List<IptvChannel>>(loadChannelsFromCache())
+    
     private val _favorites = MutableStateFlow<Set<String>>(loadFavoritesFromPrefs())
-    private val _lockedChannels = MutableStateFlow<Set<String>>(loadLockedFromPrefs())
+    private val _lockedChannels = MutableStateFlow<Map<String, String>>(loadLockedPasswordsFromPrefs())
     
+    val allChannels: StateFlow<List<IptvChannel>> = combine(_rawChannels, _favorites, _lockedChannels) { channels, favs, locked ->
+        channels.map { it.copy(isFavorite = favs.contains(it.url), isLocked = locked.containsKey(it.url)) }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     private val _selectedCategory = MutableStateFlow("All")
     val selectedCategory: StateFlow<String> = _selectedCategory
 
@@ -40,7 +56,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _epgSources = MutableStateFlow<List<EpgSource>>(loadEpgSourcesFromPrefs())
     val epgSources: StateFlow<List<EpgSource>> = _epgSources
 
-    // Reverting EPG to in-memory for stability as requested
+    private var epgDataMap: Map<String, List<EpgProgram>> = emptyMap()
+    private var epgCleanNameMap: Map<String, List<EpgProgram>> = emptyMap()
+
     private val _epgPrograms = MutableStateFlow<List<EpgProgram>>(emptyList())
     
     private val _currentPrograms = MutableStateFlow<Map<String, EpgProgram>>(emptyMap())
@@ -55,11 +73,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _epgStatus = MutableStateFlow("")
     val epgStatus: StateFlow<String> = _epgStatus
 
-    // Viewing time per channel (URL -> Seconds)
     private val _channelViewingTimes = MutableStateFlow<Map<String, Long>>(loadChannelTimesFromPrefs())
     val channelViewingTimes: StateFlow<Map<String, Long>> = _channelViewingTimes
 
-    // UI Settings
+    private val _recentChannels = MutableStateFlow<List<IptvChannel>>(loadRecentFromPrefs())
+    val recentChannels: StateFlow<List<IptvChannel>> = _recentChannels
+
     val fontSize = MutableStateFlow(prefs.getFloat("font_size", 14f))
     val showClock = MutableStateFlow(prefs.getBoolean("show_clock", true))
     val language = MutableStateFlow(prefs.getString("language", Locale.getDefault().language) ?: "en")
@@ -68,9 +87,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val themeMode = MutableStateFlow(prefs.getString("theme_mode", "Dark") ?: "Dark")
     val accentColor = MutableStateFlow(prefs.getString("accent_color", "Blue") ?: "Blue")
     val groupSortOrder = MutableStateFlow(prefs.getString("group_sort_order", "Provider") ?: "Provider")
-    val parentalPassword = MutableStateFlow(prefs.getString("parental_password", "0000") ?: "0000")
 
-    // Player Settings
+    val showSource = MutableStateFlow(prefs.getBoolean("show_source", true))
+    val showResolution = MutableStateFlow(prefs.getBoolean("show_resolution", true))
+    val showFps = MutableStateFlow(prefs.getBoolean("show_fps", true))
+    val resolutionFormat = MutableStateFlow(prefs.getString("resolution_format", "Dimensions") ?: "Dimensions")
+
     val autoStartLast = MutableStateFlow(prefs.getBoolean("auto_start_last", false))
     val lastChannelUrl = MutableStateFlow(prefs.getString("last_channel_url", "") ?: "")
     val forceLandscape = MutableStateFlow(prefs.getBoolean("force_landscape", false))
@@ -82,17 +104,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val reloadStreamOnToggle = MutableStateFlow(prefs.getBoolean("reload_stream_toggle", false))
     val fullScreenByDefault = MutableStateFlow(prefs.getBoolean("full_screen_default", false))
 
-    val categories: StateFlow<List<String>> = combine(_channels, groupSortOrder) { channels, sortOrder ->
+    val categories: StateFlow<List<String>> = combine(_rawChannels, groupSortOrder) { channels, sortOrder ->
         val cats = channels.mapNotNull { it.category }.filter { it.isNotEmpty() }.distinct()
         val sortedCats = if (sortOrder == "Alphabetical") cats.sorted() else cats
-        listOf("All", "Favorites") + sortedCats
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("All", "Favorites"))
+        listOf("All", "Favorites", "Recent") + sortedCats
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("All", "Favorites", "Recent"))
 
-    val filteredChannels: StateFlow<List<IptvChannel>> = combine(_channels, _selectedCategory, _searchQuery, _favorites, _lockedChannels) { channels, category, query, favs, locked ->
-        channels.map { it.copy(isFavorite = favs.contains(it.url), isLocked = locked.contains(it.url)) }.filter { channel ->
+    val filteredChannels: StateFlow<List<IptvChannel>> = combine(
+        allChannels, _selectedCategory, _searchQuery, _recentChannels
+    ) { channels, category, query, recents ->
+        val baseList = if (category == "Recent") recents else channels
+        baseList.filter { channel ->
             val matchesCategory = when(category) {
                 "All" -> true
                 "Favorites" -> channel.isFavorite
+                "Recent" -> true
                 else -> (channel.category ?: "") == category
             }
             val matchesSearch = channel.name.contains(query, ignoreCase = true)
@@ -104,8 +130,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isLoading: StateFlow<Boolean> = _isLoading
 
     init {
-        val selected = _playlists.value.find { it.isSelected }
-        selected?.let { loadPlaylist(it.url) }
         refreshAllEpg()
         viewModelScope.launch {
             while (true) {
@@ -116,50 +140,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun updateCurrentPrograms() {
+    private suspend fun updateCurrentPrograms() = withContext(Dispatchers.Default) {
         val now = System.currentTimeMillis()
+        val channels = _rawChannels.value
         val currentMap = mutableMapOf<String, EpgProgram>()
         val nextMap = mutableMapOf<String, EpgProgram>()
         
-        val activePrograms = _epgPrograms.value.filter { it.endTime > now }
-
-        _channels.value.forEach { channel ->
-            val idsToTry = listOfNotNull(channel.epgId, channel.name, channel.tvgName)
-            
-            var current: EpgProgram? = null
-            var next: EpgProgram? = null
-            
-            for (id in idsToTry) {
-                if (id.isEmpty()) continue
-                current = activePrograms.find { it.channelId.equals(id, ignoreCase = true) && it.startTime <= now && it.endTime > now }
-                if (current != null) {
-                    next = activePrograms.find { it.channelId.equals(id, ignoreCase = true) && it.startTime >= current!!.endTime }
-                    break
-                }
-            }
-            
-            if (current != null) {
-                currentMap[channel.name] = current
-                channel.epgId?.takeIf { it.isNotEmpty() }?.let { currentMap[it] = current }
-            }
-            if (next != null) {
-                nextMap[channel.name] = next
-                channel.epgId?.takeIf { it.isNotEmpty() }?.let { nextMap[it] = next }
+        channels.forEach { channel ->
+            val match = findEpgMatch(channel, now)
+            if (match != null) {
+                currentMap[channel.url] = match
+                val channelProgs = epgDataMap[match.channelId.lowercase()] ?: emptyList()
+                val next = channelProgs.find { it.startTime >= match.endTime }
+                if (next != null) nextMap[channel.url] = next
             }
         }
-        _currentPrograms.value = currentMap
-        _nextPrograms.value = nextMap
+        withContext(Dispatchers.Main) {
+            _currentPrograms.value = currentMap
+            _nextPrograms.value = nextMap
+        }
     }
 
-    fun getChannelSchedule(channelId: String): Flow<List<EpgProgram>> = flow {
-        val now = System.currentTimeMillis()
-        emit(_epgPrograms.value.filter { it.channelId.equals(channelId, ignoreCase = true) && it.endTime > now }
-            .sortedBy { it.startTime })
+    private fun findEpgMatch(channel: IptvChannel, now: Long): EpgProgram? {
+        val idsToTry = mutableListOf<String>()
+        channel.epgId?.let { idsToTry.add(it.lowercase().trim()) }
+        channel.tvgName?.let { idsToTry.add(it.lowercase().trim()) }
+        idsToTry.add(channel.name.lowercase().trim())
+
+        for (id in idsToTry) {
+            if (id.isEmpty()) continue
+            val match = epgDataMap[id]?.find { it.startTime <= now && it.endTime > now }
+            if (match != null) return match
+        }
+        
+        val cleanName = channel.name.lowercase()
+            .replace(" fhd", "").replace(" hd", "").replace(" sd", "").replace(" 4k", "")
+            .replace(Regex("[^a-z0-9а-я]"), "").trim()
+            
+        if (cleanName.isNotEmpty()) {
+            return epgCleanNameMap[cleanName]?.find { it.startTime <= now && it.endTime > now }
+        }
+
+        return null
     }
 
-    fun setParentalPassword(newPassword: String) {
-        parentalPassword.value = newPassword
-        prefs.edit().putString("parental_password", newPassword).apply()
+    fun addToRecent(channel: IptvChannel) {
+        val newList = (listOf(channel) + _recentChannels.value.filter { it.url != channel.url }).take(15)
+        _recentChannels.value = newList
+        saveRecentToPrefs()
+    }
+
+    private fun saveRecentToPrefs() {
+        val json = Json.encodeToString(_recentChannels.value)
+        prefs.edit().putString("recent_channels_json", json).apply()
+    }
+
+    private fun loadRecentFromPrefs(): List<IptvChannel> {
+        val json = prefs.getString("recent_channels_json", null) ?: return emptyList()
+        return try { Json.decodeFromString(json) } catch (e: Exception) { emptyList() }
+    }
+
+    private fun saveChannelsToCache(channels: List<IptvChannel>) {
+        try { cacheFile.writeText(Json.encodeToString(channels)) } catch (e: Exception) { }
+    }
+
+    private fun loadChannelsFromCache(): List<IptvChannel> {
+        if (!cacheFile.exists()) return emptyList()
+        return try { Json.decodeFromString(cacheFile.readText()) } catch (e: Exception) { emptyList() }
     }
 
     fun updateChannelViewingTime(url: String, seconds: Long) {
@@ -182,9 +229,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         response.body?.let { body ->
-                            _channels.value = M3uParser.parse(body.byteStream())
+                            val parsed = M3uParser.parse(body.byteStream())
+                            _rawChannels.value = parsed
+                            saveChannelsToCache(parsed)
                             _playlists.value = _playlists.value.map {
-                                if (it.url == url) it.copy(channelCount = _channels.value.size) else it
+                                if (it.url == url) it.copy(channelCount = parsed.size) else it
                             }
                             savePlaylistsToPrefs()
                             updateCurrentPrograms()
@@ -204,49 +253,103 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadFavoritesFromPrefs(): Set<String> = prefs.getStringSet("favorites", emptySet()) ?: emptySet()
 
-    fun lockChannel(url: String) {
-        val newLocked = _lockedChannels.value.toMutableSet()
-        newLocked.add(url)
+    fun lockChannel(url: String, password: String) {
+        val newLocked = _lockedChannels.value.toMutableMap()
+        newLocked[url] = password
         _lockedChannels.value = newLocked
-        prefs.edit().putStringSet("locked_channels", newLocked).apply()
+        saveLockedPasswordsToPrefs(newLocked)
     }
 
-    fun unlockChannel(url: String) {
-        val newLocked = _lockedChannels.value.toMutableSet()
-        newLocked.remove(url)
-        _lockedChannels.value = newLocked
-        prefs.edit().putStringSet("locked_channels", newLocked).apply()
+    fun unlockChannel(url: String, password: String): Boolean {
+        val currentPwd = _lockedChannels.value[url]
+        if (currentPwd == password) {
+            val newLocked = _lockedChannels.value.toMutableMap()
+            newLocked.remove(url)
+            _lockedChannels.value = newLocked
+            saveLockedPasswordsToPrefs(newLocked)
+            return true
+        }
+        return false
     }
 
-    private fun loadLockedFromPrefs(): Set<String> = prefs.getStringSet("locked_channels", emptySet()) ?: emptySet()
+    fun changeChannelPassword(url: String, oldPwd: String, newPwd: String): Boolean {
+        val currentPwd = _lockedChannels.value[url]
+        if (currentPwd == oldPwd) {
+            lockChannel(url, newPwd)
+            return true
+        }
+        return false
+    }
+
+    fun getChannelPassword(url: String): String? = _lockedChannels.value[url]
+
+    private fun saveLockedPasswordsToPrefs(map: Map<String, String>) {
+        prefs.edit().putString("locked_passwords_json", Json.encodeToString(map)).apply()
+    }
+
+    private fun loadLockedPasswordsFromPrefs(): Map<String, String> {
+        val json = prefs.getString("locked_passwords_json", null) ?: return emptyMap()
+        return try { Json.decodeFromString(json) } catch (e: Exception) { emptyMap() }
+    }
 
     fun refreshAllEpg() {
         val enabledSources = _epgSources.value.filter { it.enabled }
         if (enabledSources.isEmpty()) return
+        
         _isEpgLoading.value = true
         _epgStatus.value = "0%"
+        
         viewModelScope.launch(Dispatchers.IO) {
             val allProgs = mutableListOf<EpgProgram>()
             var loadedCount = 0
-            enabledSources.forEach { source ->
+            
+            for (source in enabledSources) {
                 try {
                     val request = Request.Builder().url(source.url).build()
                     client.newCall(request).execute().use { response ->
                         if (response.isSuccessful) {
                             response.body?.let { body ->
-                                val programs = XmlTvParser.parse(body.byteStream())
-                                allProgs.addAll(programs)
+                                val bis = BufferedInputStream(body.byteStream())
+                                bis.mark(10)
+                                val b1 = bis.read()
+                                val b2 = bis.read()
+                                bis.reset()
+                                
+                                val isGzipped = (b1 == 0x1f && b2 == 0x8b)
+                                val parsed = XmlTvParser.parse(bis, isGzipped)
+                                allProgs.addAll(parsed)
+                                
                                 loadedCount++
-                                _epgStatus.value = "${(loadedCount * 100) / enabledSources.size}%"
+                                withContext(Dispatchers.Main) {
+                                    _epgStatus.value = "${(loadedCount * 100) / enabledSources.size}%"
+                                }
                             }
                         }
                     }
-                } catch (e: Exception) { e.printStackTrace() }
+                } catch (e: Exception) { 
+                    e.printStackTrace()
+                }
             }
-            _epgPrograms.value = allProgs.distinctBy { "${it.channelId}_${it.startTime}" }
-            _isEpgLoading.value = false
-            _epgStatus.value = "100%"
-            updateCurrentPrograms()
+            
+            withContext(Dispatchers.Default) {
+                val distinctProgs = allProgs.distinctBy { "${it.channelId}_${it.startTime}" }
+                
+                epgDataMap = distinctProgs.groupBy { it.channelId.lowercase().trim() }
+                    .mapValues { entry -> entry.value.sortedBy { it.startTime } }
+                
+                epgCleanNameMap = distinctProgs.groupBy { 
+                    it.channelId.lowercase()
+                        .replace(" fhd", "").replace(" hd", "").replace(" sd", "").replace(" 4k", "")
+                        .replace(Regex("[^a-z0-9а-я]"), "").trim()
+                }
+                
+                withContext(Dispatchers.Main) {
+                    _epgPrograms.value = distinctProgs
+                    _isEpgLoading.value = false
+                    _epgStatus.value = if (distinctProgs.isNotEmpty()) "100%" else "Failed"
+                    updateCurrentPrograms()
+                }
+            }
         }
     }
 
@@ -259,9 +362,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "show_clock" -> showClock.value = value
                     "hide_playlist_url" -> hidePlaylistUrl.value = value
                     "auto_start_last" -> autoStartLast.value = value
+                    "full_screen_default" -> fullScreenByDefault.value = value
                     "reload_stream_toggle" -> reloadStreamOnToggle.value = value
                     "force_landscape" -> forceLandscape.value = value
                     "background_playback" -> backgroundPlayback.value = value
+                    "show_source" -> showSource.value = value
+                    "show_resolution" -> showResolution.value = value
+                    "show_fps" -> showFps.value = value
                 }
             }
             is Float -> { editor.putFloat(key, value); if (key == "font_size") fontSize.value = value }
@@ -276,6 +383,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "back_behavior" -> backBehavior.value = value
                     "buffering_level" -> bufferingLevel.value = value
                     "group_sort_order" -> groupSortOrder.value = value
+                    "resolution_format" -> resolutionFormat.value = value
                 }
             }
             is Int -> { editor.putInt(key, value); if (key == "auto_hide_timeout") autoHideTimeout.value = value }
@@ -283,19 +391,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         editor.apply()
     }
 
-    fun addToRecent(channel: IptvChannel) {
-        val newList = listOf(channel) + _channels.value.filter { it.url != channel.url && it.url in _channels.value.map { c -> c.url } }
-        // Simple recent logic
-    }
-    
-    private val _recentChannels = MutableStateFlow<List<IptvChannel>>(emptyList())
-    val recentChannels: StateFlow<List<IptvChannel>> = _recentChannels
-
     fun addPlaylist(name: String, url: String) {
         val new = Playlist(UUID.randomUUID().toString(), name, url, _playlists.value.isEmpty())
         _playlists.value = _playlists.value + new
         savePlaylistsToPrefs()
-        if (new.isSelected) loadPlaylist(url)
     }
 
     fun deletePlaylist(id: String) { _playlists.value = _playlists.value.filter { it.id != id }; savePlaylistsToPrefs() }
@@ -318,12 +417,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().clear().apply()
         _playlists.value = emptyList()
         _epgSources.value = emptyList()
-        _channels.value = emptyList()
+        _rawChannels.value = emptyList()
         _epgPrograms.value = emptyList()
+        epgDataMap = emptyMap()
+        epgCleanNameMap = emptyMap()
         _currentPrograms.value = emptyMap()
         _favorites.value = emptySet()
         _channelViewingTimes.value = emptyMap()
-        _lockedChannels.value = emptySet()
+        _lockedChannels.value = emptyMap()
+        _recentChannels.value = emptyList()
+        if (cacheFile.exists()) cacheFile.delete()
     }
 
     private fun savePlaylistsToPrefs() = prefs.edit().putString("playlists_json", Json.encodeToString(_playlists.value)).apply()
@@ -333,4 +436,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectCategory(category: String) { _selectedCategory.value = category }
     fun updateSearchQuery(query: String) { _searchQuery.value = query }
+
+    fun getChannelSchedule(url: String): Flow<List<EpgProgram>> = flow {
+        val channels = allChannels.value
+        val channel = channels.find { it.url == url }
+        if (channel != null) {
+            val idsToTry = listOfNotNull(channel.epgId, channel.tvgName, channel.name)
+            for (id in idsToTry) {
+                val progs = (epgDataMap[id.lowercase().trim()] ?: emptyList())
+                    .filter { it.endTime > System.currentTimeMillis() }
+                if (progs.isNotEmpty()) {
+                    emit(progs)
+                    return@flow
+                }
+            }
+            emit(emptyList())
+        } else {
+            emit(emptyList())
+        }
+    }
 }

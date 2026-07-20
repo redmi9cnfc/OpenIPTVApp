@@ -68,4 +68,13 @@
     <string name="close">Close</string>
     <string name="set_password">Set New Password</string>
     <string name="change_password">Change Password</string>
+    <string name="player">Player</string>
+    <string name="show_source">Show Stream Source</string>
+    <string name="show_resolution">Show Resolution</string>
+    <string name="show_fps">Show FPS</string>
+    <string name="res_format">Resolution Format</string>
+    <string name="res_format_dims">Dimensions (1920x1080)</string>
+    <string name="res_format_label">Labels (Full HD)</string>
+    <string name="setup_password">Set Password</string>
+    <string name="no_password_set">No password set</string>
 </resources>

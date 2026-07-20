@@ -68,4 +68,13 @@
     <string name="close">Закрыть</string>
     <string name="set_password">Установить новый пароль</string>
     <string name="change_password">Сменить пароль</string>
+    <string name="player">Плеер</string>
+    <string name="show_source">Показывать источник потока</string>
+    <string name="show_resolution">Показывать разрешение</string>
+    <string name="show_fps">Показывать FPS</string>
+    <string name="res_format">Формат разрешения</string>
+    <string name="res_format_dims">Размеры (1920x1080)</string>
+    <string name="res_format_label">Метки (Full HD)</string>
+    <string name="setup_password">Установить пароль</string>
+    <string name="no_password_set">Пароль не установлен</string>
 </resources>

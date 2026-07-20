@@ -1,5 +1,6 @@
 package com.kraftplay.openiptv.ui
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,6 +14,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -35,6 +39,11 @@ fun SettingsScreen(
     val listSize by viewModel.listSize.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
     val accentColor by viewModel.accentColor.collectAsState()
+    
+    val showSource by viewModel.showSource.collectAsState()
+    val showResolution by viewModel.showResolution.collectAsState()
+    val showFps by viewModel.showFps.collectAsState()
+    val resFormat by viewModel.resolutionFormat.collectAsState()
     
     val autoStartLast by viewModel.autoStartLast.collectAsState()
     val fullScreenDefault by viewModel.fullScreenByDefault.collectAsState()
@@ -66,7 +75,7 @@ fun SettingsScreen(
         }
     ) { paddingValues ->
         LazyColumn(
-            modifier = Modifier.padding(paddingValues).fillMaxSize().padding(16.dp)
+            modifier = Modifier.padding(paddingValues).fillMaxSize().padding(horizontal = 16.dp)
         ) {
             item { SectionHeader(stringResource(R.string.playlists)) }
             items(playlists) { playlist ->
@@ -76,7 +85,7 @@ fun SettingsScreen(
                 )
             }
             item {
-                Button(onClick = { showAddPlaylistDialog = true; tempName = ""; tempUrl = "" }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                TvButton(onClick = { showAddPlaylistDialog = true; tempName = ""; tempUrl = "" }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                     Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.add_playlist))
                 }
             }
@@ -100,7 +109,7 @@ fun SettingsScreen(
                 )
             }
             item {
-                Button(onClick = { showAddEpgDialog = true; tempName = ""; tempUrl = "" }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                TvButton(onClick = { showAddEpgDialog = true; tempName = ""; tempUrl = "" }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                     Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.add_epg))
                 }
             }
@@ -112,28 +121,28 @@ fun SettingsScreen(
                 Text(stringResource(R.string.theme), modifier = Modifier.padding(top = 8.dp))
                 Row {
                     listOf("Light", "Dark", "AMOLED").forEach { mode ->
-                        FilterChip(selected = themeMode == mode, onClick = { viewModel.updateSetting("theme_mode", mode) }, label = { Text(mode) }, modifier = Modifier.padding(end = 4.dp))
+                        TvFilterChip(selected = themeMode == mode, onClick = { viewModel.updateSetting("theme_mode", mode) }, label = { Text(mode) })
                     }
                 }
 
                 Text(stringResource(R.string.group_sorting), modifier = Modifier.padding(top = 8.dp))
                 val sortOrder by viewModel.groupSortOrder.collectAsState()
                 Row {
-                    FilterChip(selected = sortOrder == "Provider", onClick = { viewModel.updateSetting("group_sort_order", "Provider") }, label = { Text(stringResource(R.string.sort_provider)) }, modifier = Modifier.padding(end = 4.dp))
-                    FilterChip(selected = sortOrder == "Alphabetical", onClick = { viewModel.updateSetting("group_sort_order", "Alphabetical") }, label = { Text(stringResource(R.string.sort_alphabetical)) }, modifier = Modifier.padding(end = 4.dp))
+                    TvFilterChip(selected = sortOrder == "Provider", onClick = { viewModel.updateSetting("group_sort_order", "Provider") }, label = { Text(stringResource(R.string.sort_provider)) })
+                    TvFilterChip(selected = sortOrder == "Alphabetical", onClick = { viewModel.updateSetting("group_sort_order", "Alphabetical") }, label = { Text(stringResource(R.string.sort_alphabetical)) })
                 }
 
                 Text(stringResource(R.string.accent_color), modifier = Modifier.padding(top = 8.dp))
                 Row {
                     listOf("Blue", "Green", "Red").forEach { color ->
-                        FilterChip(selected = accentColor == color, onClick = { viewModel.updateSetting("accent_color", color) }, label = { Text(color) }, modifier = Modifier.padding(end = 4.dp))
+                        TvFilterChip(selected = accentColor == color, onClick = { viewModel.updateSetting("accent_color", color) }, label = { Text(color) })
                     }
                 }
 
                 Text(stringResource(R.string.list_size), modifier = Modifier.padding(top = 8.dp))
                 Row {
                     listOf("Compact", "Standard", "Large").forEach { size ->
-                        FilterChip(selected = listSize == size, onClick = { viewModel.updateSetting("list_size", size) }, label = { Text(size) }, modifier = Modifier.padding(end = 4.dp))
+                        TvFilterChip(selected = listSize == size, onClick = { viewModel.updateSetting("list_size", size) }, label = { Text(size) })
                     }
                 }
 
@@ -153,27 +162,37 @@ fun SettingsScreen(
                     }
                 }
                 
-                SwitchSetting(stringResource(R.string.show_clock), showClock) { viewModel.updateSetting("show_clock", it) }
-                SwitchSetting(stringResource(R.string.hide_playlist_url), hidePlaylistUrl) { viewModel.updateSetting("hide_playlist_url", it) }
+                TvSwitchSetting(stringResource(R.string.show_clock), showClock) { viewModel.updateSetting("show_clock", it) }
+                TvSwitchSetting(stringResource(R.string.hide_playlist_url), hidePlaylistUrl) { viewModel.updateSetting("hide_playlist_url", it) }
 
-                SectionHeader(stringResource(R.string.app_name)) 
-                SwitchSetting(stringResource(R.string.auto_start_last), autoStartLast) { viewModel.updateSetting("auto_start_last", it) }
-                SwitchSetting(stringResource(R.string.full_screen), fullScreenDefault) { viewModel.updateSetting("full_screen_default", it) }
-                SwitchSetting(stringResource(R.string.reload_stream), reloadStreamToggle, stringResource(R.string.reload_stream_desc)) { viewModel.updateSetting("reload_stream_toggle", it) }
-                SwitchSetting(stringResource(R.string.landscape_mode), forceLandscape, stringResource(R.string.landscape_mode_desc)) { viewModel.updateSetting("force_landscape", it) }
-                SwitchSetting(stringResource(R.string.background_playback), backgroundPlayback) { viewModel.updateSetting("background_playback", it) }
+                SectionHeader(stringResource(R.string.player)) 
+                TvSwitchSetting(stringResource(R.string.show_source), showSource) { viewModel.updateSetting("show_source", it) }
+                TvSwitchSetting(stringResource(R.string.show_resolution), showResolution) { viewModel.updateSetting("show_resolution", it) }
+                TvSwitchSetting(stringResource(R.string.show_fps), showFps) { viewModel.updateSetting("show_fps", it) }
+                
+                Text(stringResource(R.string.res_format), modifier = Modifier.padding(top = 8.dp))
+                Row {
+                    TvFilterChip(selected = resFormat == "Dimensions", onClick = { viewModel.updateSetting("resolution_format", "Dimensions") }, label = { Text(stringResource(R.string.res_format_dims)) })
+                    TvFilterChip(selected = resFormat == "Labels", onClick = { viewModel.updateSetting("resolution_format", "Labels") }, label = { Text(stringResource(R.string.res_format_label)) })
+                }
+
+                TvSwitchSetting(stringResource(R.string.auto_start_last), autoStartLast) { viewModel.updateSetting("auto_start_last", it) }
+                TvSwitchSetting(stringResource(R.string.full_screen), fullScreenDefault) { viewModel.updateSetting("full_screen_default", it) }
+                TvSwitchSetting(stringResource(R.string.reload_stream), reloadStreamToggle, stringResource(R.string.reload_stream_desc)) { viewModel.updateSetting("reload_stream_toggle", it) }
+                TvSwitchSetting(stringResource(R.string.landscape_mode), forceLandscape, stringResource(R.string.landscape_mode_desc)) { viewModel.updateSetting("force_landscape", it) }
+                TvSwitchSetting(stringResource(R.string.background_playback), backgroundPlayback) { viewModel.updateSetting("background_playback", it) }
                 
                 Text(stringResource(R.string.auto_hide_info) + ": " + (if(autoHideTimeout == 0) stringResource(R.string.never) else stringResource(R.string.seconds, autoHideTimeout)))
                 Row {
                     listOf(0, 3, 5, 10).forEach { s ->
-                        FilterChip(selected = autoHideTimeout == s, onClick = { viewModel.updateSetting("auto_hide_timeout", s) }, label = { Text(if(s==0) stringResource(R.string.never) else stringResource(R.string.seconds, s)) }, modifier = Modifier.padding(end = 4.dp))
+                        TvFilterChip(selected = autoHideTimeout == s, onClick = { viewModel.updateSetting("auto_hide_timeout", s) }, label = { Text(if(s==0) stringResource(R.string.never) else stringResource(R.string.seconds, s)) })
                     }
                 }
 
                 Text(stringResource(R.string.buffering), modifier = Modifier.padding(top = 8.dp))
                 Row {
                     listOf("Low", "Standard", "High").forEach { b ->
-                        FilterChip(selected = bufferingLevel == b, onClick = { viewModel.updateSetting("buffering_level", b) }, label = { Text(b) }, modifier = Modifier.padding(end = 4.dp))
+                        TvFilterChip(selected = bufferingLevel == b, onClick = { viewModel.updateSetting("buffering_level", b) }, label = { Text(b) })
                     }
                 }
 
@@ -181,23 +200,24 @@ fun SettingsScreen(
                 val sleepMinutes by viewModel.sleepTimer.collectAsState()
                 Row {
                     listOf(0, 15, 30, 60, 120).forEach { m ->
-                        FilterChip(selected = sleepMinutes == m, onClick = { viewModel.sleepTimer.value = m }, label = { Text(if(m==0) stringResource(R.string.off) else stringResource(R.string.minutes, m)) }, modifier = Modifier.padding(end = 4.dp))
+                        TvFilterChip(selected = sleepMinutes == m, onClick = { viewModel.sleepTimer.value = m }, label = { Text(if(m==0) stringResource(R.string.off) else stringResource(R.string.minutes, m)) })
                     }
                 }
 
                 SectionHeader(stringResource(R.string.back_behavior))
                 Row {
                     listOf("Exit", "Back to list", "Confirm").forEach { b ->
-                        FilterChip(selected = backBehavior == b, onClick = { viewModel.updateSetting("back_behavior", b) }, label = { Text(b) }, modifier = Modifier.padding(end = 4.dp))
+                        TvFilterChip(selected = backBehavior == b, onClick = { viewModel.updateSetting("back_behavior", b) }, label = { Text(b) })
                     }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
-                Button(onClick = { viewModel.clearData() }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                TvButton(onClick = { viewModel.clearData() }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
                     Text(stringResource(R.string.clear_data))
                 }
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(stringResource(R.string.version) + " 3.0", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                Text(stringResource(R.string.version) + " 4.5.3", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(32.dp))
             }
         }
     }
@@ -218,8 +238,17 @@ fun SectionHeader(title: String) {
 }
 
 @Composable
-fun SwitchSetting(title: String, checked: Boolean, description: String? = null, onCheckedChange: (Boolean) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+fun TvSwitchSetting(title: String, checked: Boolean, description: String? = null, onCheckedChange: (Boolean) -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
+    Column(modifier = Modifier
+        .fillMaxWidth()
+        .onFocusChanged { isFocused = it.isFocused }
+        .scale(if (isFocused) 1.02f else 1f)
+        .clickable { onCheckedChange(!checked) }
+        .padding(vertical = 8.dp)
+        .border(if (isFocused) 2.dp else 0.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small)
+        .padding(8.dp)
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, modifier = Modifier.weight(1f))
             Switch(checked = checked, onCheckedChange = onCheckedChange)
@@ -231,17 +260,69 @@ fun SwitchSetting(title: String, checked: Boolean, description: String? = null, 
 }
 
 @Composable
+fun TvFilterChip(selected: Boolean, onClick: () -> Unit, label: @Composable () -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = label,
+        modifier = Modifier
+            .padding(end = 8.dp)
+            .onFocusChanged { isFocused = it.isFocused }
+            .scale(if (isFocused) 1.1f else 1f)
+            .border(if (isFocused) 2.dp else 0.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small)
+    )
+}
+
+@Composable
+fun TvButton(onClick: () -> Unit, modifier: Modifier = Modifier, colors: ButtonColors = ButtonDefaults.buttonColors(), content: @Composable RowScope.() -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
+    Button(
+        onClick = onClick,
+        modifier = modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .scale(if (isFocused) 1.05f else 1f)
+            .border(if (isFocused) 2.dp else 0.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.extraLarge),
+        colors = colors,
+        content = content
+    )
+}
+
+@Composable
 fun LanguageSelection(current: String, onSelect: (String) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(stringResource(R.string.language), modifier = Modifier.weight(1f))
-        TextButton(onClick = { onSelect("en") }) { Text("EN", color = if (current == "en") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
-        TextButton(onClick = { onSelect("ru") }) { Text("RU", color = if (current == "ru") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+        TvTextButton(onClick = { onSelect("en") }, selected = current == "en") { Text("EN") }
+        TvTextButton(onClick = { onSelect("ru") }, selected = current == "ru") { Text("RU") }
     }
 }
 
 @Composable
+fun TvTextButton(onClick: () -> Unit, selected: Boolean, content: @Composable RowScope.() -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .scale(if (isFocused) 1.1f else 1f)
+            .border(if (isFocused) 2.dp else 0.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small),
+        colors = ButtonDefaults.textButtonColors(contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant),
+        content = content
+    )
+}
+
+@Composable
 fun PlaylistCard(name: String, url: String, selected: Boolean, channelCount: Int, onSelect: () -> Unit, onDelete: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onSelect() }, colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)) {
+    var isFocused by remember { mutableStateOf(false) }
+    Card(modifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 4.dp)
+        .onFocusChanged { isFocused = it.isFocused }
+        .scale(if (isFocused) 1.02f else 1f)
+        .border(if (isFocused) 3.dp else 0.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium)
+        .clickable { onSelect() }, 
+        colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
+    ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
