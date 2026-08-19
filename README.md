@@ -1,42 +1,43 @@
 # OpenIPTVApp
 # 📺 OpenIPTV
-Opn-source IPTV плеер для Android и Android TV.
+Opn-source IPTV player for Android, Android TV and Android Auto (test).
 ---
-## 🚀 О проекте
-OpenIPTV — это лёгкое и быстрое приложение для просмотра IPTV каналов с использованием M3U плейлистов.
-Проект создан с упором на:
-- ⚡ высокую скорость работы
-- 📱 поддержку Android и TV устройств
-- 🎯 простоту и удобство
-- 🔓 открытый исходный код
+## 🚀 About the project
+OpenIPTV is a lightweight and fast application for watching IPTV channels using M3U playlists.
+The project was created with an emphasis on:
+- ⚡ High speed operation
+- 📱 Support for Android and TV devices
+- 🚗 Android auto test support
+- 🎯 Simplicity and convenience
+- 🔓 Open source code
 ---
-## ✨ Возможности
-- Поддержка M3U плейлистов
-- Воспроизведение IPTV потоков (HLS / MPEG-TS)
-- Избранные каналы
-- Поиск каналов
-- Поддержка Android TV
-- Управление с пульта
-- Лёгкий и быстрый интерфейс
+## ✨ Opportunities
+- Support for M3U playlists
+- Playback of IPTV streams (HLS/ MPEG-TS)
+- Favorite channels
+- Channel search
+- Android TV support
+- Remote control
+- Easy and fast interface
 ---
-## 🧱 Технологии
+## 🧱 Technology
 - Kotlin
 - ExoPlayer (Media3)
 - Android Jetpack
-- MVVM архитектура
+- MVVM architecture
 ---
-## 🩹 Патчинг
-- Приложенте было пропатчино с помощью мобильных патчеров MT manager и Apktool M
+## 🩹 Patching
+- The application was patched using the MT manager and Apktool M mobile patches
 ---
-## 📦 Установка
+## 📦 Installation
 
-- Установите .apk файл на ваше устройство. 
-- Если хотите посмотреть код в Android Studio, то там же скачиваете .zip архив, распаковываете его и открываете в Android Studio
+- Install the .apk file on your device. 
+- If you want to view the code in Android Studio, download it there.zip archive, unpack it and open it in Android Studio
 ---
-## 🙃 Баги и тгк
-- Тгк: https://t.me/+IB-WMBTo7ZxkNmZi
-- Если вы нашли баг, то обязательно пишите в наш тгк.
-- Пример сообщения:
-- Устройство: пишите название вашего устройства и версию андроида
-- Баг: пишите сам баг
-- Возможное решение: пишите ваше решение (если знаете, как той или иной баг пофиксить) 
+## 🙃 Bugs and thc
+- Thc: https://t.me/+IB-WMBTo7ZxkNmZi
+- If you find a bug, be sure to write to our thc.
+- An example of a message:
+- Device: Write the name of your device and the android version
+- Bug: write the bug yourself
+- Possible solution: write your solution (if you know how to fix a bug) 
