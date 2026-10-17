@@ -42,4 +42,199 @@
     <string name="seconds">%1$d s</string>
     <string name="off">Off</string>
     <string name="never">Never</string>
+    <string name="channels_count">channels</string>
+    <string name="no_playlists">No playlists found</string>
+    <string name="add_first_playlist">Add your first playlist</string>
+    <string name="resolution">Resolution</string>
+    <string name="video">Video</string>
+    <string name="audio">Audio</string>
+    <string name="bitrate">Bitrate</string>
+    <string name="fps">FPS</string>
+    <string name="source">Source</string>
+    <string name="pause">Pause</string>
+    <string name="play">Play</string>
+    <string name="jump_to_live">Jump to Live</string>
+    <string name="auto_hide_info">Info panel timeout</string>
+    <string name="group_sorting">Group sorting</string>
+    <string name="sort_provider">By provider</string>
+    <string name="sort_alphabetical">By alphabet</string>
+    <string name="add_to_favorites">Add to Favorites</string>
+    <string name="remove_from_favorites">Remove from Favorites</string>
+    <string name="pin_channel">Pin Channel to top</string>
+    <string name="unpin_channel">Unpin Channel</string>
+    <string name="lock_channel">Lock Channel</string>
+    <string name="unlock_channel">Unlock Channel</string>
+    <string name="enter_password">Enter Password</string>
+    <string name="password">Password</string>
+    <string name="incorrect_password">Incorrect Password</string>
+    <string name="close">Close</string>
+    <string name="set_password">Set New Password</string>
+    <string name="change_password">Change Password</string>
+    <string name="player">Player</string>
+    <string name="show_source">Show Stream Source</string>
+    <string name="show_resolution">Show Resolution</string>
+    <string name="show_fps">Show FPS</string>
+    <string name="res_format">Resolution Format</string>
+    <string name="res_format_dims">Dimensions (1920x1080)</string>
+    <string name="res_format_label">Labels (Full HD)</string>
+    <string name="setup_password">Set Password</string>
+    <string name="no_password_set">No password set</string>
+    <string name="ui_style">UI Style</string>
+    <string name="material3">Material You 3</string>
+    <string name="liquid_glass">Liquid Glass</string>
+
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_amoled">AMOLED</string>
+
+    <string name="color_blue">Blue</string>
+    <string name="color_green">Green</string>
+    <string name="color_red">Red</string>
+
+    <string name="size_compact">Compact</string>
+    <string name="size_standard">Standard</string>
+    <string name="size_large">Large</string>
+
+    <string name="ratio_fit">Fit</string>
+    <string name="ratio_fill">Full Screen</string>
+
+    <string name="buffer_low">Low</string>
+    <string name="buffer_standard">Standard</string>
+    <string name="buffer_high">High</string>
+
+    <string name="cat_all">All</string>
+    <string name="cat_favorites">Favorites</string>
+    <string name="cat_recent">Recent</string>
+
+    <string name="epg_search">Search EPG Program</string>
+    <string name="set_reminder">Set Reminder Notification</string>
+    <string name="reminder_set">Reminder set for show</string>
+    <string name="audio_tracks">Audio Tracks</string>
+    <string name="subtitles">Subtitles</string>
+    <string name="playback_speed">Playback Speed</string>
+    <string name="volume_boost">Volume Boost</string>
+    <string name="pip_mode">Picture-in-Picture Mode</string>
+    <string name="manage_categories">Manage Categories</string>
+    <string name="hide_category">Hide Category</string>
+    <string name="unhide_category">Unhide Category</string>
+    <string name="parental_control">Parental Control</string>
+    <string name="parental_pin">Parental Control PIN</string>
+    <string name="backup_restore">Backup &amp; Restore</string>
+    <string name="export_backup">Export Backup (JSON)</string>
+    <string name="import_backup">Import Backup (JSON)</string>
+    <string name="backup_success">Backup imported successfully</string>
+    <string name="backup_error">Error processing backup JSON</string>
+    <string name="android_auto_header">Android Auto &amp; LSPosed</string>
+    <string name="lsposed_status">LSPosed Module Status</string>
+    <string name="lsposed_active">Active (Fermata style unlocked)</string>
+    <string name="lsposed_inactive">Inactive (Module not enabled in LSPosed Manager)</string>
+    <string name="auto_play_car">Auto-play on Android Auto Connect</string>
+
+    <string name="category_display_mode">Category Display Mode</string>
+    <string name="mode_chips">Horizontal Chips</string>
+    <string name="mode_folders">Folders (Panels)</string>
+    <string name="back_to_folders">← Back to Folders</string>
+    <string name="folder_channels_count">%1$d channels</string>
+
+    <string name="aspect_ratio">Aspect Ratio / Display Mode</string>
+    <string name="aspect_ratio_fill">Full Screen</string>
+    <string name="aspect_ratio_16_9">16:9</string>
+    <string name="aspect_ratio_4_3">4:3</string>
+    <string name="aspect_ratio_fit">Fit / Original</string>
+
+    <string name="playlist_settings">Playlist Settings</string>
+    <string name="epg_settings">EPG Source Settings</string>
+    <string name="enable_item">Enable / Active</string>
+    <string name="password_lock">Password Lock</string>
+    <string name="auto_update_interval">Auto-update Frequency</string>
+    <string name="update_on_launch">On App Launch</string>
+    <string name="update_15m">15 min</string>
+    <string name="update_30m">30 min</string>
+    <string name="update_1h">1 hour</string>
+    <string name="update_1d">1 day</string>
+    <string name="update_disabled">Disabled</string>
+    <string name="playlist_disabled">Playlist is disabled</string>
+    <string name="epg_disabled">EPG source is disabled</string>
+    <string name="save">Save</string>
+
+    <string name="custom_interface_header">Custom Interface (JSON Theme)</string>
+    <string name="edit_custom_ui">Edit Custom Theme JSON</string>
+    <string name="paste_sample_ui">Paste Cyberpunk Example</string>
+    <string name="reset_ui">Reset Interface to Default</string>
+    <string name="custom_ui_updated">Custom Interface theme applied!</string>
+    <string name="custom_ui_invalid">Invalid Custom UI JSON!</string>
+
+    <!-- Wi-Fi playlist / EPG transfer -->
+    <string name="wifi_transfer_title">Wi-Fi transfer</string>
+    <string name="wifi_transfer_description">Transfers playlists, EPG sources and OpenIPTV backup data between devices on the same Wi-Fi network.</string>
+    <string name="wifi_send">Send</string>
+    <string name="wifi_receive">Receive</string>
+    <string name="wifi_receiver_instructions">On the other device, choose Receive and enter this address:</string>
+    <string name="wifi_copy_address">Copy address</string>
+    <string name="wifi_transfer_keep_open">Keep this screen open until the transfer is complete. The address works only while the sender is running.</string>
+    <string name="wifi_sender_address">Sender device address</string>
+    <string name="wifi_get_playlist_epg">Receive playlist and EPG</string>
+    <string name="wifi_receive_confirm_title">Receive data?</string>
+    <string name="wifi_receive_confirm_message">Playlists, EPG sources and related settings on this device will be replaced with the sender’s data. Continue?</string>
+    <string name="wifi_receive_replace">Receive and replace</string>
+    <string name="wifi_cancel">Cancel</string>
+    <string name="wifi_connecting">Connecting to sender device…</string>
+    <string name="wifi_receive_success">Transfer complete. Playlists and EPG sources received.</string>
+    <string name="wifi_receive_invalid">The received file format is not recognized. Nothing was imported.</string>
+    <string name="wifi_transfer_error">Transfer failed: %1$s</string>
+    <string name="wifi_waiting">Waiting for the other device…</string>
+    <string name="wifi_enter_address">Enter the address shown on the sender device.</string>
+    <string name="wifi_address_copied">Address copied</string>
+    <string name="wifi_connect_wifi">Connect to Wi-Fi and try again.</string>
+    <string name="import_file">Import file</string>
+    <string name="import_file_formats">Import file .TXT / .M3U / .M3U8</string>
+    <string name="clear_all_epg">Clear all EPG (%1$s)</string>
+    <string name="archive_mode">Archive mode (Catch-up)</string>
+    <string name="archive_mode_desc">Auto detects the method from playlist metadata; other modes force a format.</string>
+    <string name="back_exit">Exit</string>
+    <string name="back_to_list">Back to list</string>
+    <string name="back_confirm">Confirm</string>
+    <string name="backup_copied">Backup copied to clipboard!</string>
+    <string name="community">Community and project</string>
+
+    <!-- EPG status -->
+    <string name="epg_loading_status">Loading…</string>
+    <string name="epg_clearing">Clearing…</string>
+    <string name="epg_cleared">EPG cleared</string>
+    <string name="epg_empty">EPG is empty</string>
+    <string name="epg_updated">EPG updated</string>
+    <string name="epg_programs_loaded">Loaded %1$d programs (%2$s)</string>
+
+    <!-- Custom Theme & Dialogs -->
+    <string name="random_sample">Random Sample</string>
+    <string name="category_disabled_suffix">disabled</string>
+    <string name="checking_updates">Checking for updates…</string>
+    <string name="update_app">Update Application</string>
+
+    <!-- Wi-Fi Dialog -->
+    <string name="wifi_dialog_title">Wi-Fi Transfer</string>
+    <string name="wifi_dialog_choose_action">Choose Action</string>
+    <string name="wifi_dialog_same_network">Both devices must be connected to the same Wi-Fi network.</string>
+    <string name="wifi_dialog_send_choose">Send — select device</string>
+    <string name="wifi_dialog_receive_this">Receive on this device</string>
+    <string name="wifi_dialog_waiting_sender">Waiting for sender device connection…</string>
+    <string name="wifi_dialog_device_visible">Device is visible. On sender device, tap \"Send\" and select this device.</string>
+    <string name="wifi_dialog_registration_failed">Could not register device (%1$d). Check Wi-Fi.</string>
+    <string name="wifi_dialog_receive_start_failed">Could not start receiver</string>
+    <string name="wifi_dialog_searching_devices">Searching for devices ready to receive playlist…</string>
+    <string name="wifi_dialog_searching_instructions">Searching for devices… On the second device open \"Receive\".</string>
+    <string name="wifi_dialog_select_receiver">Select receiving device</string>
+    <string name="wifi_dialog_discovery_failed">Could not start search (%1$d).</string>
+    <string name="wifi_dialog_discovery_error">Search error: %1$s</string>
+    <string name="wifi_dialog_keep_open">Keep this screen open. The sender will find this device automatically.</string>
+    <string name="wifi_dialog_ready_wifi">Ready to receive · Wi-Fi</string>
+    <string name="wifi_dialog_sending_to">Transferring playlist and EPG to %1$s…</string>
+    <string name="wifi_dialog_unreachable">Device unreachable</string>
+    <string name="wifi_dialog_path_not_found">Receive address not found</string>
+    <string name="wifi_dialog_success">Transfer completed successfully</string>
+    <string name="wifi_dialog_rejected">Device rejected import (%1$d)</string>
+    <string name="wifi_dialog_error">Transfer error: %1$s</string>
+    <string name="wifi_dialog_check_connection">check connection</string>
+    <string name="wifi_dialog_done">Done</string>
+    <string name="wifi_dialog_back">Back</string>
 </resources>

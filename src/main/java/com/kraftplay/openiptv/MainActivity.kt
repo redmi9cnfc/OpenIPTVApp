@@ -1,20 +1,28 @@
 package com.kraftplay.openiptv
 
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.setContent
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
+import com.kraftplay.openiptv.model.CustomThemeConfig
 import com.kraftplay.openiptv.ui.MainScreen
 import com.kraftplay.openiptv.ui.PlayerScreen
 import com.kraftplay.openiptv.ui.SettingsScreen
@@ -24,46 +32,117 @@ import java.nio.charset.StandardCharsets
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    private var isPlayingVideo = false
+    private var fullScreenEnabledForWindow = true
+
+    private fun applyAppSystemBars() {
+        val appWindow = this.window
+        WindowCompat.setDecorFitsSystemWindows(appWindow, !fullScreenEnabledForWindow)
+        val controller = WindowInsetsControllerCompat(appWindow, appWindow.decorView)
+        if (isPlayingVideo && fullScreenEnabledForWindow) {
+            appWindow.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+        } else {
+            appWindow.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            controller.show(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applyAppSystemBars()
+    }
+
+    fun setPlayingVideoState(playing: Boolean) {
+        isPlayingVideo = playing
+        applyAppSystemBars()
+    }
+
+    fun triggerPipMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                val params = PictureInPictureParams.Builder().build()
+                enterPictureInPictureMode(params)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (isPlayingVideo) {
+            triggerPipMode()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val autoPlayUrl = intent.getStringExtra("auto_play_url")
+
         setContent {
             val viewModel: MainViewModel = viewModel()
+            val fullScreenEnabled by viewModel.fullScreenByDefault.collectAsState()
+            SideEffect {
+                fullScreenEnabledForWindow = fullScreenEnabled
+                applyAppSystemBars()
+            }
             val language by viewModel.language.collectAsState()
             val themeMode by viewModel.themeMode.collectAsState()
             val accentColorName by viewModel.accentColor.collectAsState()
             val backBehavior by viewModel.backBehavior.collectAsState()
+            val uiStyle by viewModel.uiStyle.collectAsState()
+            val customTheme by viewModel.parsedCustomTheme.collectAsState()
             
             val accentColor = when(accentColorName) {
                 "Green" -> Color(0xFF4CAF50)
                 "Red" -> Color(0xFFF44336)
-                else -> Color(0xFF2196F3) // Blue
+                else -> Color(0xFF2196F3)
             }
 
-            val colorScheme = when(themeMode) {
-                "Light" -> lightColorScheme(
-                    primary = accentColor,
-                    background = Color.White,
-                    surface = Color.White
+            val colorScheme = if (customTheme.enabled) {
+                darkColorScheme(
+                    primary = parseHexColor(customTheme.primaryColorHex, accentColor),
+                    background = parseHexColor(customTheme.backgroundColorHex, Color(0xFF121212)),
+                    surface = parseHexColor(customTheme.surfaceColorHex, Color(0xFF1E1E1E)),
+                    onBackground = parseHexColor(customTheme.textColorHex, Color.White),
+                    onSurface = parseHexColor(customTheme.textColorHex, Color.White)
                 )
-                "AMOLED" -> darkColorScheme(
-                    primary = accentColor,
-                    background = Color.Black,
-                    surface = Color.Black,
-                    surfaceVariant = Color.Black
-                )
-                else -> darkColorScheme(
-                    primary = accentColor,
-                    background = Color(0xFF121212),
-                    surface = Color(0xFF1E1E1E)
-                ) // Dark
+            } else {
+                when(themeMode) {
+                    "Light" -> lightColorScheme(
+                        primary = accentColor,
+                        background = Color.White,
+                        surface = Color.White
+                    )
+                    "AMOLED" -> darkColorScheme(
+                        primary = accentColor,
+                        background = Color.Black,
+                        surface = Color.Black,
+                        surfaceVariant = Color.Black
+                    )
+                    else -> darkColorScheme(
+                        primary = accentColor,
+                        background = Color(0xFF121212),
+                        surface = Color(0xFF1E1E1E)
+                    )
+                }
             }
 
-            LanguageContextWrapper(language) {
+            LanguageContextWrapper(language, this@MainActivity) {
                 MaterialTheme(colorScheme = colorScheme) {
                     val navController = rememberNavController()
-                    
                     var lastBackPressTime by remember { mutableStateOf(0L) }
-                    
+
+                    LaunchedEffect(autoPlayUrl) {
+                        if (!autoPlayUrl.isNullOrEmpty()) {
+                            val encodedUrl = URLEncoder.encode(autoPlayUrl, StandardCharsets.UTF_8.toString())
+                            navController.navigate("player/$encodedUrl")
+                        }
+                    }
+
                     BackHandler(enabled = true) {
                         val currentRoute = navController.currentDestination?.route
                         if (currentRoute == "main") {
@@ -78,9 +157,7 @@ class MainActivity : ComponentActivity() {
                                         Toast.makeText(this@MainActivity, "Press again to exit", Toast.LENGTH_SHORT).show()
                                     }
                                 }
-                                "Back to list" -> {
-                                    // Already on main
-                                }
+                                "Back to list" -> { }
                             }
                         } else {
                             navController.popBackStack()
@@ -88,34 +165,60 @@ class MainActivity : ComponentActivity() {
                     }
 
                     Surface(color = MaterialTheme.colorScheme.background) {
-                        OpenIptvApp(viewModel, navController)
+                        com.kraftplay.openiptv.ui.StyledBackground(uiStyle = uiStyle) {
+                            OpenIptvApp(viewModel, navController, this@MainActivity)
+                        }
                     }
                 }
             }
         }
     }
+
+    private fun parseHexColor(hex: String, defaultColor: Color): Color {
+        return try {
+            val clean = hex.trim().replace("#", "")
+            if (clean.length == 6) {
+                Color(android.graphics.Color.parseColor("#FF$clean"))
+            } else if (clean.length == 8) {
+                Color(android.graphics.Color.parseColor("#$clean"))
+            } else defaultColor
+        } catch (e: Exception) {
+            defaultColor
+        }
+    }
 }
 
 @Composable
-fun LanguageContextWrapper(language: String, content: @Composable () -> Unit) {
+fun LanguageContextWrapper(
+    language: String,
+    activity: ComponentActivity,
+    content: @Composable () -> Unit
+) {
     val context = LocalContext.current
     val locale = Locale(language)
     Locale.setDefault(locale)
     val config = Configuration(context.resources.configuration)
     config.setLocale(locale)
     val localizedContext = context.createConfigurationContext(config)
-    CompositionLocalProvider(LocalContext provides localizedContext) {
+    CompositionLocalProvider(
+        LocalContext provides localizedContext,
+        LocalActivityResultRegistryOwner provides activity
+    ) {
         content()
     }
 }
 
 @Composable
-fun OpenIptvApp(viewModel: MainViewModel, navController: androidx.navigation.NavHostController) {
+fun OpenIptvApp(
+    viewModel: MainViewModel,
+    navController: androidx.navigation.NavHostController,
+    activity: MainActivity
+) {
     val autoStartLast by viewModel.autoStartLast.collectAsState()
     val lastUrl by viewModel.lastChannelUrl.collectAsState()
     
     LaunchedEffect(Unit) {
-        if (autoStartLast && lastUrl.isNotEmpty()) {
+        if (autoStartLast && lastUrl.isNotEmpty() && activity.intent.getStringExtra("auto_play_url").isNullOrEmpty()) {
             val encodedUrl = URLEncoder.encode(lastUrl, StandardCharsets.UTF_8.toString())
             navController.navigate("player/$encodedUrl")
         }
@@ -123,6 +226,7 @@ fun OpenIptvApp(viewModel: MainViewModel, navController: androidx.navigation.Nav
 
     NavHost(navController = navController, startDestination = "main") {
         composable("main") {
+            activity.setPlayingVideoState(false)
             MainScreen(
                 viewModel = viewModel,
                 onChannelClick = { channel ->
@@ -133,14 +237,21 @@ fun OpenIptvApp(viewModel: MainViewModel, navController: androidx.navigation.Nav
             )
         }
         composable("settings") {
+            activity.setPlayingVideoState(false)
             SettingsScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
         }
         composable(
             route = "player/{url}",
             arguments = listOf(navArgument("url") { type = NavType.StringType })
         ) { backStackEntry ->
+            activity.setPlayingVideoState(true)
             val url = backStackEntry.arguments?.getString("url") ?: ""
-            PlayerScreen(viewModel = viewModel, url = url)
+            PlayerScreen(
+                viewModel = viewModel,
+                url = url,
+                onTriggerPip = { activity.triggerPipMode() },
+                onExitChannel = { navController.popBackStack() }
+            )
         }
     }
 }

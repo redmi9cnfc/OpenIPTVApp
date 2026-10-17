@@ -42,4 +42,202 @@
     <string name="seconds">%1$d сек</string>
     <string name="off">Выкл</string>
     <string name="never">Никогда</string>
+    <string name="channels_count">каналов</string>
+    <string name="no_playlists">Плейлисты не найдены</string>
+    <string name="add_first_playlist">Добавьте свой первый плейлист</string>
+    <string name="resolution">Разрешение</string>
+    <string name="video">Видео</string>
+    <string name="audio">Аудио</string>
+    <string name="bitrate">Битрейт</string>
+    <string name="fps">FPS</string>
+    <string name="source">Источник</string>
+    <string name="pause">Пауза</string>
+    <string name="play">Играть</string>
+    <string name="jump_to_live">В прямой эфир</string>
+    <string name="auto_hide_info">Скрытие инфо-панели</string>
+    <string name="group_sorting">Сортировка групп</string>
+    <string name="sort_provider">Как у провайдера</string>
+    <string name="sort_alphabetical">По алфавиту</string>
+    <string name="add_to_favorites">Добавить в избранное</string>
+    <string name="remove_from_favorites">Удалить из избранного</string>
+    <string name="pin_channel">Закрепить канал вверху</string>
+    <string name="unpin_channel">Открепить канал</string>
+    <string name="lock_channel">Заблокировать канал</string>
+    <string name="unlock_channel">Разблокировать канал</string>
+    <string name="enter_password">Введите пароль</string>
+    <string name="password">Пароль</string>
+    <string name="incorrect_password">Неверный пароль</string>
+    <string name="close">Закрыть</string>
+    <string name="set_password">Установить новый пароль</string>
+    <string name="change_password">Сменить пароль</string>
+    <string name="player">Плеер</string>
+    <string name="show_source">Показывать источник потока</string>
+    <string name="show_resolution">Показывать разрешение</string>
+    <string name="show_fps">Показывать FPS</string>
+    <string name="res_format">Формат разрешения</string>
+    <string name="res_format_dims">Размеры (1920x1080)</string>
+    <string name="res_format_label">Метки (Full HD)</string>
+    <string name="setup_password">Установить пароль</string>
+    <string name="no_password_set">Пароль не установлен</string>
+    <string name="ui_style">Стиль интерфейса</string>
+    <string name="material3">Material You 3</string>
+    <string name="liquid_glass">Liquid Glass</string>
+
+    <string name="theme_light">Светлая</string>
+    <string name="theme_dark">Тёмная</string>
+    <string name="theme_amoled">Чёрная</string>
+
+    <string name="color_blue">Синий</string>
+    <string name="color_green">Зелёный</string>
+    <string name="color_red">Красный</string>
+
+    <string name="size_compact">Компактный</string>
+    <string name="size_standard">Стандартный</string>
+    <string name="size_large">Крупный</string>
+
+    <string name="ratio_fit">Вписать</string>
+    <string name="ratio_fill">Заполнить</string>
+
+    <string name="buffer_low">Низкая</string>
+    <string name="buffer_standard">Стандартная</string>
+    <string name="buffer_high">Высокая</string>
+
+    <string name="cat_all">Все</string>
+    <string name="cat_favorites">Избранное</string>
+    <string name="cat_recent">Недавние</string>
+
+    <!-- Новые функции -->
+    <string name="epg_search">Поиск по телепрограмме</string>
+    <string name="set_reminder">Напомнить о передаче</string>
+    <string name="reminder_set">Напоминание установлено</string>
+    <string name="audio_tracks">Звуковые дорожки</string>
+    <string name="subtitles">Субтитры</string>
+    <string name="playback_speed">Скорость воспроизведения</string>
+    <string name="volume_boost">Усиление звука</string>
+    <string name="pip_mode">Картинка в картинке (PiP)</string>
+    <string name="manage_categories">Управление категориями</string>
+    <string name="hide_category">Скрыть категорию</string>
+    <string name="unhide_category">Показать категорию</string>
+    <string name="parental_control">Родительский контроль</string>
+    <string name="parental_pin">PIN-код родительского контроля</string>
+    <string name="backup_restore">Резервное копирование</string>
+    <string name="export_backup">Экспорт настроек (JSON)</string>
+    <string name="import_backup">Импорт настроек (JSON)</string>
+    <string name="backup_success">Настройки успешно импортированы</string>
+    <string name="backup_error">Ошибка импорта файла резервной копии</string>
+    <string name="android_auto_header">Android Auto и LSPosed</string>
+    <string name="lsposed_status">Статус модуля LSPosed</string>
+    <string name="lsposed_active">Активен (Разблокировано как в Fermata Auto)</string>
+    <string name="lsposed_inactive">Не активен (Включите модуль в LSPosed)</string>
+    <string name="auto_play_car">Автозапуск при подключении Android Auto</string>
+
+    <!-- Режим папок -->
+    <string name="category_display_mode">Режим отображения категорий</string>
+    <string name="mode_chips">Горизонтальная лента</string>
+    <string name="mode_folders">Папки категорий</string>
+    <string name="back_to_folders">← Назад к папкам</string>
+    <string name="folder_channels_count">%1$d каналов</string>
+
+    <!-- Пользовательский интерфейс -->
+    <string name="aspect_ratio">Отображение пропорций видео</string>
+    <string name="aspect_ratio_fill">Заполнить</string>
+    <string name="aspect_ratio_16_9">16:9</string>
+    <string name="aspect_ratio_4_3">4:3</string>
+    <string name="aspect_ratio_fit">Вписать</string>
+
+    <string name="playlist_settings">Настройки плейлиста</string>
+    <string name="epg_settings">Настройки источника EPG</string>
+    <string name="enable_item">Включить / Использовать</string>
+    <string name="password_lock">Защита паролем</string>
+    <string name="auto_update_interval">Период автообновления</string>
+    <string name="update_on_launch">При заходе в приложение</string>
+    <string name="update_15m">Каждые 15 мин</string>
+    <string name="update_30m">Каждые 30 мин</string>
+    <string name="update_1h">Каждый 1 час</string>
+    <string name="update_1d">Раз в день</string>
+    <string name="update_disabled">Отключено</string>
+    <string name="playlist_disabled">Плейлист отключен</string>
+    <string name="epg_disabled">Источник EPG отключен</string>
+    <string name="save">Сохранить</string>
+
+    <string name="custom_interface_header">Кастомный интерфейс (JSON)</string>
+    <string name="edit_custom_ui">Редактировать кастомную тему</string>
+    <string name="paste_sample_ui">Вставить пример Cyberpunk</string>
+    <string name="reset_ui">Сбросить интерфейс</string>
+    <string name="custom_ui_updated">Кастомная тема интерфейса применена!</string>
+    <string name="custom_ui_invalid">Ошибка: неверный формат JSON темы!</string>
+
+    <!-- Wi-Fi playlist / EPG transfer -->
+    <string name="wifi_transfer_title">Передача по Wi-Fi</string>
+    <string name="wifi_transfer_description">Передаёт плейлисты, источники EPG и резервные данные OpenIPTV между устройствами в одной сети Wi-Fi.</string>
+    <string name="wifi_send">Передать</string>
+    <string name="wifi_receive">Получить</string>
+    <string name="wifi_receiver_instructions">На втором устройстве выберите «Получить» и введите этот адрес:</string>
+    <string name="wifi_copy_address">Копировать адрес</string>
+    <string name="wifi_transfer_keep_open">Не закрывайте этот экран до завершения передачи. Адрес действует только пока сервер запущен.</string>
+    <string name="wifi_sender_address">Адрес устройства-отправителя</string>
+    <string name="wifi_get_playlist_epg">Получить плейлист и EPG</string>
+    <string name="wifi_receive_confirm_title">Получить данные?</string>
+    <string name="wifi_receive_confirm_message">Плейлисты, источники EPG и связанные настройки на этом устройстве будут заменены данными отправителя. Продолжить?</string>
+    <string name="wifi_receive_replace">Получить и заменить</string>
+    <string name="wifi_cancel">Отмена</string>
+    <string name="wifi_connecting">Подключение к устройству…</string>
+    <string name="wifi_receive_success">Передача завершена. Плейлисты и источники EPG получены.</string>
+    <string name="wifi_receive_invalid">Получен файл, но его формат не распознан. Данные не импортированы.</string>
+    <string name="wifi_transfer_error">Ошибка передачи: %1$s</string>
+    <string name="wifi_waiting">Ожидание подключения второго устройства…</string>
+    <string name="wifi_enter_address">Введите адрес, показанный на устройстве-отправителе.</string>
+    <string name="wifi_address_copied">Адрес скопирован</string>
+    <string name="wifi_connect_wifi">Подключитесь к Wi-Fi и попробуйте снова.</string>
+    <string name="import_file">Импорт файла</string>
+    <string name="import_file_formats">Импорт файла .TXT / .M3U / .M3U8</string>
+    <string name="clear_all_epg">Очистить весь EPG (%1$s)</string>
+    <string name="archive_mode">Режим архива (Catch-up)</string>
+    <string name="archive_mode_desc">Автоматически определяет способ по метаданным плейлиста; остальные режимы задают формат принудительно.</string>
+    <string name="back_exit">Выход</string>
+    <string name="back_to_list">Назад к списку</string>
+    <string name="back_confirm">Подтверждение</string>
+    <string name="backup_copied">Резервная копия скопирована в буфер обмена!</string>
+    <string name="community">Сообщество и проект</string>
+
+    <!-- EPG status -->
+    <string name="epg_loading_status">Загрузка…</string>
+    <string name="epg_clearing">Очистка…</string>
+    <string name="epg_cleared">EPG очищен</string>
+    <string name="epg_empty">EPG пуст</string>
+    <string name="epg_updated">EPG обновлен</string>
+    <string name="epg_programs_loaded">Загружено %1$d передач (%2$s)</string>
+
+    <!-- Custom Theme & Dialogs -->
+    <string name="random_sample">Случайный пример</string>
+    <string name="category_disabled_suffix">выключена</string>
+    <string name="checking_updates">Проверка обновлений…</string>
+    <string name="update_app">Обновить приложение</string>
+
+    <!-- Wi-Fi Dialog -->
+    <string name="wifi_dialog_title">Передача по Wi-Fi</string>
+    <string name="wifi_dialog_choose_action">Выберите действие</string>
+    <string name="wifi_dialog_same_network">Оба устройства должны быть подключены к одной Wi‑Fi сети.</string>
+    <string name="wifi_dialog_send_choose">Передать — выбрать устройство</string>
+    <string name="wifi_dialog_receive_this">Получить на это устройство</string>
+    <string name="wifi_dialog_waiting_sender">Ожидаем подключение отправителя…</string>
+    <string name="wifi_dialog_device_visible">Устройство доступно. На отправителе нажмите «Передать» и выберите это устройство.</string>
+    <string name="wifi_dialog_registration_failed">Не удалось объявить устройство в сети (%1$d). Проверьте Wi‑Fi.</string>
+    <string name="wifi_dialog_receive_start_failed">Не удалось запустить приём</string>
+    <string name="wifi_dialog_searching_devices">Ищем устройства, готовые принять плейлист…</string>
+    <string name="wifi_dialog_searching_instructions">Поиск устройств… На втором устройстве откройте «Получить».</string>
+    <string name="wifi_dialog_select_receiver">Выберите устройство-получатель</string>
+    <string name="wifi_dialog_discovery_failed">Не удалось начать поиск (%1$d).</string>
+    <string name="wifi_dialog_discovery_error">Ошибка поиска: %1$s</string>
+    <string name="wifi_dialog_keep_open">Оставьте этот экран открытым. Отправитель найдёт устройство автоматически.</string>
+    <string name="wifi_dialog_ready_wifi">Готово к приёму · Wi‑Fi</string>
+    <string name="wifi_dialog_sending_to">Передаём плейлист и EPG на %1$s…</string>
+    <string name="wifi_dialog_unreachable">Устройство недоступно</string>
+    <string name="wifi_dialog_path_not_found">Не найден адрес приёма</string>
+    <string name="wifi_dialog_success">Передача завершена успешно</string>
+    <string name="wifi_dialog_rejected">Устройство отклонило импорт (%1$d)</string>
+    <string name="wifi_dialog_error">Ошибка передачи: %1$s</string>
+    <string name="wifi_dialog_check_connection">проверьте соединение</string>
+    <string name="wifi_dialog_done">Готово</string>
+    <string name="wifi_dialog_back">Назад</string>
 </resources>
