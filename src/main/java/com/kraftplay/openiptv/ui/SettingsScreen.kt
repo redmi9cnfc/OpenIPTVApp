@@ -74,7 +74,7 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var activeUpdateDownloadId by remember { mutableStateOf<Long?>(null) }
-    DisposableEffect(context) {
+    DisposableEffect(context, activeUpdateDownloadId) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
@@ -98,12 +98,25 @@ fun SettingsScreen(
                     Toast.makeText(ctx, "APK downloaded, but the file could not be found", Toast.LENGTH_LONG).show()
                     return
                 }
-                val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(apkUri, "application/vnd.android.package-archive")
+                // Launch Android's package installer directly as soon as DownloadManager
+                // confirms that the APK is completely downloaded. The URI grant is required
+                // because DownloadManager owns the content:// URI.
+                val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                    data = apkUri
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                    putExtra(Intent.EXTRA_RETURN_RESULT, false)
                 }
                 runCatching { ctx.startActivity(installIntent) }
-                    .onFailure { Toast.makeText(ctx, "Could not open the Android installer", Toast.LENGTH_LONG).show() }
+                    .recoverCatching {
+                        // Some Android TV builds do not resolve ACTION_INSTALL_PACKAGE.
+                        val fallback = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(apkUri, "application/vnd.android.package-archive")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        ctx.startActivity(fallback)
+                    }
+                    .onFailure { Toast.makeText(ctx, "APK скачан, но Android не смог открыть установщик. Откройте уведомление о загрузке и выберите установку.", Toast.LENGTH_LONG).show() }
             }
         }
         val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
@@ -199,6 +212,9 @@ fun SettingsScreen(
         ) { uri: Uri? ->
             if (uri != null) {
                 runCatching {
+                    runCatching {
+                        context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
                     val fileName = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                         ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: "playlist.m3u"
                     viewModel.importPlaylistFile(uri, fileName)
@@ -228,9 +244,10 @@ fun SettingsScreen(
         ) {
             item { SectionHeader(stringResource(R.string.playlists)) }
             items(playlists) { playlist ->
+                val displayUrl = if (com.kraftplay.openiptv.model.isKitTvPlaylist(playlist.name, playlist.url, playlist.id)) "" else playlist.url
                 PlaylistCard(
                     name = playlist.name,
-                    url = playlist.url,
+                    url = displayUrl,
                     selected = playlist.isSelected,
                     channelCount = playlist.channelCount,
                     enabled = playlist.enabled,
@@ -490,17 +507,34 @@ fun SettingsScreen(
 
                 Text(stringResource(R.string.list_size), modifier = Modifier.padding(top = 8.dp))
                 val sizeLabels = mapOf(
-                    "Compact" to stringResource(R.string.size_compact),
-                    "Standard" to stringResource(R.string.size_standard),
-                    "Large" to stringResource(R.string.size_large)
+                    "SimpleList" to stringResource(R.string.layout_simple_list),
+                    "CompactList" to stringResource(R.string.layout_compact_list),
+                    "CompactList2" to stringResource(R.string.layout_compact_list_2),
+                    "LargeCards" to stringResource(R.string.layout_large_cards),
+                    "SmallCards" to stringResource(R.string.layout_small_cards),
+                    "NarrowCards" to stringResource(R.string.layout_narrow_cards),
+                    "SideBySide" to stringResource(R.string.layout_side_by_side),
+                    "SideBySideSmall" to stringResource(R.string.layout_side_by_side_small),
+                    "SideBySideLarge" to stringResource(R.string.layout_side_by_side_large),
+                    "SideBySideHuge" to stringResource(R.string.layout_side_by_side_huge)
                 )
-                Row {
-                    listOf("Compact", "Standard", "Large").forEach { size ->
-                        TvFilterChip(
-                            selected = listSize == size,
-                            onClick = { viewModel.updateSetting("list_size", size) },
-                            label = { Text(sizeLabels[size] ?: size) }
-                        )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        listOf("SimpleList", "CompactList"),
+                        listOf("CompactList2", "LargeCards"),
+                        listOf("SmallCards", "NarrowCards"),
+                        listOf("SideBySide", "SideBySideSmall"),
+                        listOf("SideBySideLarge", "SideBySideHuge")
+                    ).forEach { rowModes ->
+                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            rowModes.forEach { mode ->
+                                TvFilterChip(
+                                    selected = listSize == mode,
+                                    onClick = { viewModel.updateSetting("list_size", mode) },
+                                    label = { Text(sizeLabels[mode] ?: mode, maxLines = 1) }
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -645,50 +679,87 @@ fun SettingsScreen(
                             } else {
                                 checkingUpdate = true
                                 scope.launch(Dispatchers.IO) {
+                                    data class LatestRelease(val tag: String, val apkUrl: String?)
                                     val result = runCatching {
-                                        val connection = (URL("https://api.github.com/repos/redmi9cnfc/OpenIPTVApp/releases/latest").openConnection() as HttpURLConnection).apply {
-                                            connectTimeout = 15000
-                                            readTimeout = 15000
-                                            setRequestProperty("Accept", "application/vnd.github+json")
-                                            setRequestProperty("User-Agent", "OpenIPTVApp-Updater")
+                                        fun readUrl(url: String): Pair<Int, String> {
+                                            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                                                connectTimeout = 20000
+                                                readTimeout = 25000
+                                                requestMethod = "GET"
+                                                setRequestProperty("Accept", "application/vnd.github+json, text/html;q=0.9, */*;q=0.8")
+                                                setRequestProperty("User-Agent", "OpenIPTVApp-Updater/1.0 (Android)")
+                                                instanceFollowRedirects = true
+                                            }
+                                            return try {
+                                                val code = connection.responseCode
+                                                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                                                code to (stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty())
+                                            } finally { connection.disconnect() }
                                         }
-                                        try {
-                                            val body = connection.inputStream.bufferedReader().use { it.readText() }
-                                            val tag = Regex("\\\"tag_name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"").find(body)?.groupValues?.get(1)
-                                            val assetsPart = body.substringAfter("\"assets\"").substringBefore("\"reactions\"")
-                                            val apk = Regex("\\\"browser_download_url\\\"\\s*:\\s*\\\"([^\\\"]+\\.apk(?:\\?[^\\\"]*)?)\\\"")
-                                                .find(assetsPart)?.groupValues?.get(1)
-                                            tag to apk
-                                        } finally { connection.disconnect() }
+                                        // Try the API first, then the human-facing latest-release page if rate-limited
+                                        // or if the API release metadata does not expose an APK asset.
+                                        var latest: LatestRelease? = null
+                                        val api = runCatching { readUrl("https://api.github.com/repos/redmi9cnfc/OpenIPTVApp/releases/latest") }.getOrNull()
+                                        if (api != null && api.first in 200..299) {
+                                            runCatching {
+                                                val release = org.json.JSONObject(api.second)
+                                                val tag = release.optString("tag_name").takeIf { it.isNotBlank() } ?: "latest"
+                                                val assets = release.optJSONArray("assets")
+                                                var apk: String? = null
+                                                if (assets != null) for (i in 0 until assets.length()) {
+                                                    val asset = assets.optJSONObject(i) ?: continue
+                                                    val name = asset.optString("name")
+                                                    val url = asset.optString("browser_download_url")
+                                                    if (name.endsWith(".apk", true) && url.startsWith("https://")) { apk = url; break }
+                                                }
+                                                latest = LatestRelease(tag, apk)
+                                            }
+                                        }
+                                        if (latest?.apkUrl.isNullOrBlank()) {
+                                            val page = readUrl("https://github.com/redmi9cnfc/OpenIPTVApp/releases/latest")
+                                            if (page.first in 200..299) {
+                                                val html = page.second.replace("&amp;", "&")
+                                                val apkMatch = Regex("href=\"([^\"]+/releases/download/[^\"]+\\.apk(?:\\?[^\"]*)?)\"", RegexOption.IGNORE_CASE).find(html)
+                                                    ?: Regex("(https://github\\.com/redmi9cnfc/OpenIPTVApp/releases/download/[^\"' ]+\\.apk)", RegexOption.IGNORE_CASE).find(html)
+                                                val apk = apkMatch?.groupValues?.getOrNull(1)?.let { if (it.startsWith("http")) it else "https://github.com$it" }
+                                                val tag = Regex("/releases/tag/([^\"/?#]+)").find(page.second)?.groupValues?.getOrNull(1)?.let { java.net.URLDecoder.decode(it, "UTF-8") }
+                                                    ?: latest?.tag ?: "latest"
+                                                if (!apk.isNullOrBlank()) latest = LatestRelease(tag, apk)
+                                            }
+                                        }
+                                        latest?.takeIf { !it.apkUrl.isNullOrBlank() }
+                                            ?: throw IllegalStateException("Последний релиз найден, но APK не опубликован. Добавьте APK в Assets релиза GitHub.")
                                     }
                                     withContext(Dispatchers.Main) {
                                         checkingUpdate = false
-                                        val (tag, apkUrl) = result.getOrNull() ?: (null to null)
-                                        val current = runCatching {
-                                            @Suppress("DEPRECATION")
-                                            context.packageManager.getPackageInfo(context.packageName, 0).versionName
-                                        }.getOrNull()
-                                        if (tag == null) {
-                                            Toast.makeText(context, "Could not check GitHub releases. Check your internet connection.", Toast.LENGTH_LONG).show()
-                                        } else if (tag.removePrefix("v").equals(current?.removePrefix("v"), true)) {
-                                            Toast.makeText(context, "Latest version already installed ($tag)", Toast.LENGTH_LONG).show()
-                                        } else if (apkUrl.isNullOrBlank()) {
-                                            Toast.makeText(context, "Version $tag was found, but the release has no APK attached.", Toast.LENGTH_LONG).show()
-                                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/redmi9cnfc/OpenIPTVApp/releases/latest")).addCategory(Intent.CATEGORY_BROWSABLE)) }
-                                        } else {
-                                            runCatching {
-                                                val request = DownloadManager.Request(Uri.parse(apkUrl))
-                                                    .setTitle("OpenIPTV — обновление $tag")
-                                                    .setDescription("Downloading app update")
-                                                    .setMimeType("application/vnd.android.package-archive")
-                                                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                                    .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "OpenIPTV-update.apk")
-                                                val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                                                activeUpdateDownloadId = manager.enqueue(request)
-                                                Toast.makeText(context, "Version $tag found. Downloading APK; the system installer will open when the download finishes.", Toast.LENGTH_LONG).show()
-                                            }.onFailure {
-                                                Toast.makeText(context, "Update download error: ${it.localizedMessage ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                                        result.onSuccess { release ->
+                                            val apkUrl = release.apkUrl
+                                            if (apkUrl.isNullOrBlank()) {
+                                                Toast.makeText(context, "В релизе ${release.tag} нет APK-файла. Открываю страницу релиза.", Toast.LENGTH_LONG).show()
+                                                runCatching {
+                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/redmi9cnfc/OpenIPTVApp/releases/latest")).addCategory(Intent.CATEGORY_BROWSABLE))
+                                                }
+                                            } else {
+                                                runCatching {
+                                                    val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                                                    manager.remove(activeUpdateDownloadId ?: -1L)
+                                                    val request = DownloadManager.Request(Uri.parse(apkUrl))
+                                                        .setTitle("OpenIPTV — ${release.tag}")
+                                                        .setDescription("Downloading the latest published APK")
+                                                        .setMimeType("application/vnd.android.package-archive")
+                                                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                        .setAllowedOverMetered(true)
+                                                        .setAllowedOverRoaming(true)
+                                                        .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "OpenIPTV-latest.apk")
+                                                    activeUpdateDownloadId = manager.enqueue(request)
+                                                    Toast.makeText(context, "Релиз ${release.tag} найден. После полной загрузки автоматически откроется установщик Android.", Toast.LENGTH_LONG).show()
+                                                }.onFailure {
+                                                    Toast.makeText(context, "Could not start update download: ${it.localizedMessage ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                                                }
                                             }
+                                        }.onFailure { error ->
+                                            val message = error.localizedMessage ?: "unknown error"
+                                            Toast.makeText(context, "Update check failed: $message", Toast.LENGTH_LONG).show()
                                         }
                                     }
                                 }
@@ -704,7 +775,7 @@ fun SettingsScreen(
                     Text(stringResource(R.string.clear_data))
                 }
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(stringResource(R.string.version) + " 5.0", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                Text(stringResource(R.string.version) + " 5.1", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
@@ -712,24 +783,27 @@ fun SettingsScreen(
 
     if (editingPlaylist != null) {
         val target = editingPlaylist!!
+        val isKitTv = com.kraftplay.openiptv.model.isKitTvPlaylist(target.name, target.url, target.id)
         ItemSettingsDialog(
             title = stringResource(R.string.playlist_settings),
             name = target.name,
-            url = target.url,
+            url = if (isKitTv) "" else target.url,
             enabled = target.enabled,
             password = target.password ?: "",
             autoUpdateInterval = target.autoUpdateInterval,
             onDismiss = { editingPlaylist = null },
             onSave = { name, url, enabled, pass, interval ->
+                val finalUrl = if (isKitTv && url.isBlank()) target.url else url
                 viewModel.updatePlaylist(
                     target.copy(
                         name = name,
-                        url = url,
+                        url = finalUrl,
                         enabled = enabled,
                         password = pass.ifBlank { null },
                         autoUpdateInterval = interval
                     )
                 )
+                editingPlaylist = null
             }
         )
     }

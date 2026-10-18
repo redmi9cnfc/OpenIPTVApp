@@ -43,7 +43,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val cacheFile = File(application.cacheDir, "channels_cache.json")
     private val epgDao = EpgDatabase.getDatabase(application).epgDao()
     
-    private val _playlists = MutableStateFlow<List<Playlist>>(loadPlaylistsFromPrefs())
+    private val defaultKitTvPlaylist = Playlist(
+        id = "kittv-default",
+        name = "KitTV",
+        url = "https://raw.githubusercontent.com/redmi9cnfc/TV/refs/heads/main/Kit.m3u",
+        isSelected = true,
+        autoUpdateInterval = "On launch"
+    )
+    private val _playlists = MutableStateFlow<List<Playlist>>(
+        loadPlaylistsFromPrefs().ifEmpty { listOf(defaultKitTvPlaylist) }
+    )
     val playlists: StateFlow<List<Playlist>> = _playlists
 
     private val _rawChannels = MutableStateFlow<List<IptvChannel>>(loadChannelsFromCache())
@@ -247,6 +256,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        // Seed KitTV as the default source on a fresh install; retain any user playlists.
+        if (prefs.getString("playlists_json", null).isNullOrBlank() || loadPlaylistsFromPrefs().isEmpty()) {
+            savePlaylistsToPrefs()
+        }
         val selectedPlaylist = _playlists.value.find { it.isSelected }
         if (selectedPlaylist != null) {
             val cached = loadChannelsFromCache()
@@ -287,9 +300,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isLoading.value = true
             _playlistError.value = null
             try {
-                val bytes = getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: throw java.io.IOException("Could not open the selected file")
+                val app = getApplication<Application>()
+                val resolver = app.contentResolver
+                // Copy the picked document into app-private storage immediately. This avoids
+                // depending on a Downloads provider URI/temporary grant after the picker closes,
+                // and makes imported playlists portable within this device.
+                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: throw java.io.IOException("Could not open the selected file. Please select it again using the system file picker.")
                 if (bytes.isEmpty()) throw java.io.IOException("The selected file is empty")
+                val playlistDir = File(app.filesDir, "imported_playlists").apply { mkdirs() }
+                val safeName = fileName.replace(Regex("[^A-Za-z0-9._-]"), "_").take(80).ifBlank { "playlist.m3u" }
+                val localFile = File(playlistDir, "${UUID.randomUUID()}-$safeName")
+                localFile.writeBytes(bytes)
                 val rawStream = ByteArrayInputStream(bytes)
                 rawStream.mark(4)
                 val b1 = rawStream.read()
@@ -328,7 +350,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val newPlaylist = Playlist(
                         UUID.randomUUID().toString(),
                         fileName.ifBlank { "playlist.m3u" },
-                        uri.toString(),
+                        localFile.absolutePath,
                         isSelected = true,
                         channelCount = parsed.size
                     )
@@ -821,8 +843,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Export only shareable media-list data; never include channel-lock passwords in Wi-Fi transfers. */
     fun exportWifiTransferJson(): String {
+        // SAF/Downloads content:// URIs are valid only on the device that granted access.
+        // Embed local playlist files in the transfer so the receiving TV never opens the sender's URI.
+        val resolver = getApplication<Application>().contentResolver
+        val portablePlaylists = _playlists.value.map { playlist ->
+            val localBytes = runCatching {
+                when {
+                    playlist.url.startsWith("content://", ignoreCase = true) ->
+                        resolver.openInputStream(Uri.parse(playlist.url))?.use { it.readBytes() }
+                    playlist.url.startsWith("/") -> File(playlist.url).takeIf { it.isFile }?.readBytes()
+                    playlist.url.startsWith("file://", ignoreCase = true) ->
+                        Uri.parse(playlist.url).path?.let { File(it).takeIf { file -> file.isFile }?.readBytes() }
+                    else -> null
+                }
+            }.getOrNull()
+            val encoded = localBytes?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
+            if (encoded != null) playlist.copy(url = "data:text/plain;base64,$encoded") else playlist
+        }
         val map = mapOf(
-            "playlists" to Json.encodeToString(_playlists.value),
+            "playlists" to Json.encodeToString(portablePlaylists),
             "epgSources" to Json.encodeToString(_epgSources.value),
             "favorites" to Json.encodeToString(_favorites.value),
             "pinned" to Json.encodeToString(_pinnedUrls.value)
@@ -846,7 +885,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val map: Map<String, String> = Json.decodeFromString(jsonString)
             map["playlists"]?.let {
                 val imported: List<Playlist> = Json.decodeFromString(it)
-                _playlists.value = imported
+                // Convert transferred inline file data into a private local file on this device.
+                val playlistDir = File(getApplication<Application>().filesDir, "imported_playlists").apply { mkdirs() }
+                _playlists.value = imported.map { playlist ->
+                    val prefix = "data:text/plain;base64,"
+                    if (playlist.url.startsWith(prefix, ignoreCase = true)) {
+                        val bytes = android.util.Base64.decode(playlist.url.substring(prefix.length), android.util.Base64.DEFAULT)
+                        val safeName = playlist.name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(60).ifBlank { "playlist" }
+                        val target = File(playlistDir, "${playlist.id.replace(Regex("[^A-Za-z0-9_-]"), "_")}-$safeName.m3u8")
+                        target.writeBytes(bytes)
+                        playlist.copy(url = target.absolutePath)
+                    } else playlist
+                }
                 savePlaylistsToPrefs()
             }
             map["epgSources"]?.let { _epgSources.value = Json.decodeFromString(it); saveEpgSourcesToPrefs() }

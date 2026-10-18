@@ -240,4 +240,15 @@
     <string name="wifi_dialog_check_connection">проверьте соединение</string>
     <string name="wifi_dialog_done">Готово</string>
     <string name="wifi_dialog_back">Назад</string>
+    <string name="layout_simple_list">Простой список</string>
+    <string name="layout_compact_list">Компактный список</string>
+    <string name="layout_compact_list_2">Компактный список 2</string>
+    <string name="layout_large_cards">Большие карточки</string>
+    <string name="layout_small_cards">Маленькие карточки</string>
+    <string name="layout_narrow_cards">Очень узкие карточки</string>
+    <string name="layout_side_by_side">Бок о бок</string>
+    <string name="layout_side_by_side_small">Бок о бок, маленькие</string>
+    <string name="layout_side_by_side_large">Бок о бок, крупные</string>
+    <string name="layout_side_by_side_huge">Бок о бок, огромные</string>
+    <string name="no_program_info">Нет информации о программе</string>
 </resources>

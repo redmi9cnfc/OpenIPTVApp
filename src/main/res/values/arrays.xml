@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- LSPosed scope: хуким Android Auto (Gearhead) + само приложение (для индикатора модуля) -->
 <resources>
     <string-array name="xposed_scope">
         <item>com.google.android.projection.gearhead</item>
+        <item>com.kraftplay.openiptv</item>
     </string-array>
 </resources>

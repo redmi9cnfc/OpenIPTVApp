@@ -39,6 +39,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
 import android.net.Uri
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -111,6 +112,9 @@ fun MainScreen(
     var showWifiTransfer by remember { mutableStateOf(false) }
     val playlistFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { selected ->
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(selected, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
             val name = context.contentResolver.query(selected, null, null, null, null)?.use { cursor ->
                 val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
                 if (cursor.moveToFirst() && index >= 0) cursor.getString(index) else "playlist.m3u"
@@ -145,18 +149,29 @@ fun MainScreen(
                             Text("OpenIPTV", fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                             val currentPlaylist = playlists.find { it.isSelected }
                             if (currentPlaylist != null) {
-                                val showUrl = !hideUrl
+                                val isKitTv = com.kraftplay.openiptv.model.isKitTvPlaylist(currentPlaylist.name, currentPlaylist.url, currentPlaylist.id)
+                                val shouldShowUrl = !hideUrl && currentPlaylist.url.isNotBlank() && !currentPlaylist.url.startsWith("data:text/plain;base64,", ignoreCase = true)
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        if (showUrl) currentPlaylist.url else currentPlaylist.name,
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        modifier = Modifier.weight(1f)
-                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            currentPlaylist.name,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1
+                                        )
+                                        if (shouldShowUrl) {
+                                            Text(
+                                                currentPlaylist.url,
+                                                fontSize = 9.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
                                     Box {
                                         IconButton(
                                             onClick = { showPlaylistMenu = true },
@@ -313,13 +328,9 @@ fun MainScreen(
                     if (isLoading) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                     } else {
-                        val minSize = when(listSize) {
-                            "Compact" -> 140.dp
-                            "Large" -> 220.dp
-                            else -> 160.dp
-                        }
+                        val gridColumns = channelGridCells(listSize)
                         LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = minSize),
+                            columns = gridColumns,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(8.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -383,13 +394,9 @@ fun MainScreen(
                             Text(getCategoryDisplayName(selectedFolder ?: ""), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         }
 
-                        val minSize = when(listSize) {
-                            "Compact" -> 140.dp
-                            "Large" -> 220.dp
-                            else -> 160.dp
-                        }
+                        val gridColumns = channelGridCells(listSize)
                         LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = minSize),
+                            columns = gridColumns,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(8.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -745,9 +752,10 @@ fun MainScreen(
 @Composable
 fun CategoryFolderCard(title: String, count: Int, uiStyle: String, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
+    val cardShape = if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else MaterialTheme.shapes.medium
 
     Surface(
-        shape = if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else MaterialTheme.shapes.medium,
+        shape = cardShape,
         tonalElevation = if (isFocused) 8.dp else 1.dp,
         color = if (uiStyle == "LiquidGlass") Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier
@@ -758,7 +766,7 @@ fun CategoryFolderCard(title: String, count: Int, uiStyle: String, onClick: () -
             .border(
                 width = if (isFocused) 3.dp else 0.dp,
                 color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
-                shape = if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else MaterialTheme.shapes.medium
+                shape = cardShape
             )
             .clickable { onClick() }
     ) {
@@ -807,13 +815,40 @@ fun TvMenuItem(onClick: () -> Unit, icon: androidx.compose.ui.graphics.vector.Im
     }
 }
 
+private fun channelGridCells(mode: String): GridCells = when (mode) {
+    "SimpleList", "CompactList", "CompactList2" -> GridCells.Fixed(1)
+    "SideBySide", "SideBySideLarge", "SideBySideHuge" -> GridCells.Fixed(2)
+    "SideBySideSmall" -> GridCells.Fixed(3)
+    "NarrowCards" -> GridCells.Fixed(4)
+    "SmallCards" -> GridCells.Adaptive(minSize = 112.dp)
+    "LargeCards" -> GridCells.Adaptive(minSize = 220.dp)
+    "Compact" -> GridCells.Adaptive(minSize = 140.dp)
+    "Large" -> GridCells.Adaptive(minSize = 220.dp)
+    else -> GridCells.Adaptive(minSize = 160.dp)
+}
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ChannelCard(channel: IptvChannel, currentProgram: EpgProgram?, nextProgram: EpgProgram?, viewingTime: Long, fontSize: Float, listSize: String, uiStyle: String, onClick: () -> Unit, onLongClick: () -> Unit) {
-    val height = when(listSize) {
+    val isListLayout = listSize in listOf("SimpleList", "CompactList", "CompactList2")
+    val height = when (listSize) {
+        "SimpleList" -> 88.dp
+        "CompactList" -> 68.dp
+        "CompactList2" -> 54.dp
         "Compact" -> 145.dp
-        "Large" -> 220.dp
+        "Large", "LargeCards" -> 220.dp
+        "SmallCards" -> 138.dp
+        "NarrowCards" -> 118.dp
+        "SideBySideSmall" -> 132.dp
+        "SideBySideLarge" -> 220.dp
+        "SideBySideHuge" -> 270.dp
         else -> 185.dp
+    }
+    val cardShape = when (listSize) {
+        "NarrowCards" -> RoundedCornerShape(6.dp)
+        "SmallCards", "SideBySideSmall" -> RoundedCornerShape(10.dp)
+        "LargeCards", "SideBySideLarge", "SideBySideHuge" -> RoundedCornerShape(22.dp)
+        else -> if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else MaterialTheme.shapes.medium
     }
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     var isFocused by remember { mutableStateOf(false) }
@@ -823,18 +858,18 @@ fun ChannelCard(channel: IptvChannel, currentProgram: EpgProgram?, nextProgram: 
     val keyScope = rememberCoroutineScope()
 
     Surface(
-        shape = if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else MaterialTheme.shapes.medium,
+        shape = cardShape,
         tonalElevation = if (isFocused) 8.dp else 1.dp,
         color = if (uiStyle == "LiquidGlass") Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surface,
         modifier = Modifier
             .fillMaxWidth()
-            .height(height)
+            .then(if (isListLayout) Modifier.height(height) else Modifier.height(height))
             .onFocusChanged { isFocused = it.isFocused }
             .scale(if (isFocused) 1.08f else 1f)
             .border(
                 width = if (isFocused) 3.dp else 0.dp,
                 color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
-                shape = if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else MaterialTheme.shapes.medium
+                shape = cardShape
             )
             // Handle remote OK before clickable semantics. Some TV remotes do not
             // emit repeat events, so use a timer rather than relying on repeatCount.
@@ -878,7 +913,34 @@ fun ChannelCard(channel: IptvChannel, currentProgram: EpgProgram?, nextProgram: 
             )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.padding(8.dp).fillMaxSize()) {
+            if (isListLayout) {
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = if (listSize == "CompactList2") 5.dp else 9.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    AsyncImage(
+                        model = channel.logoUrl,
+                        contentDescription = null,
+                        modifier = Modifier.size(if (listSize == "CompactList2") 34.dp else 48.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                        Text(channel.name, maxLines = 1, fontSize = (if (listSize == "CompactList2") fontSize - 2 else fontSize).sp, fontWeight = FontWeight.Bold)
+                        if (channel.isLocked) {
+                            Text("🔒", fontSize = 10.sp)
+                        } else if (currentProgram != null) {
+                            Text(currentProgram.title, maxLines = 1, fontSize = (fontSize - 3).coerceAtLeast(8f).sp, color = MaterialTheme.colorScheme.primary)
+                            if (listSize != "CompactList2") Text("${timeFormat.format(currentProgram.start)} - ${timeFormat.format(currentProgram.stop)}", fontSize = (fontSize - 5).coerceAtLeast(8f).sp, color = Color.Gray)
+                        } else if (listSize == "SimpleList") {
+                            Text(stringResource(R.string.no_program_info), maxLines = 1, fontSize = (fontSize - 3).coerceAtLeast(8f).sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    if (channel.isFavorite) Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(14.dp))
+                    if (channel.isPinned) Icon(Icons.Default.PushPin, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                }
+            } else {
+            Column(modifier = Modifier.padding(if (listSize == "NarrowCards") 4.dp else 8.dp).fillMaxSize()) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     AsyncImage(
                         model = channel.logoUrl,
@@ -959,6 +1021,7 @@ fun ChannelCard(channel: IptvChannel, currentProgram: EpgProgram?, nextProgram: 
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
             }
             
             if (viewingTime > 0) {

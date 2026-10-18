@@ -14,3 +14,11 @@ data class Playlist(
     val autoUpdateInterval: String = "On launch",
     val lastUpdatedTime: Long = 0L
 )
+
+fun isKitTvPlaylist(name: String, url: String, id: String = ""): Boolean {
+    return id == "kittv-default" ||
+           name.contains("KitTV", ignoreCase = true) ||
+           name.contains("kItTv", ignoreCase = true) ||
+           url.contains("KitTV", ignoreCase = true) ||
+           url.contains("kItTv", ignoreCase = true)
+}

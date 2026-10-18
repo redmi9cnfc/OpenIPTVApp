@@ -10,6 +10,12 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
+import android.os.Handler
+import android.os.Looper
+import android.view.Surface
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.Futures
@@ -28,11 +34,15 @@ class PlaybackService : MediaLibraryService() {
     private val client = OkHttpClient()
     private var cachedChannels = listOf<IptvChannel>()
     private var favoriteUrls = setOf<String>()
+    private var aaSurface: Surface? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var retryCount = 0
 
     override fun onCreate() {
         super.onCreate()
         val player = ExoPlayer.Builder(this).build()
         mediaLibrarySession = MediaLibrarySession.Builder(this, player, LibraryCallback()).build()
+        attachPlaybackRecovery(player)
         loadData()
     }
 
@@ -60,6 +70,47 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    private fun currentPlayer(): ExoPlayer? = mediaLibrarySession?.player as? ExoPlayer
+
+    /** Автопереподключение при обрыве потока + запись "Недавних" каналов. */
+    private fun attachPlaybackRecovery(player: ExoPlayer) {
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) retryCount = 0
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                mediaItem?.mediaId?.takeIf { it.isNotEmpty() }?.let { recordRecent(it) }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                retryCount++
+                if (retryCount <= 5) {
+                    mainHandler.postDelayed({
+                        runCatching {
+                            player.prepare()
+                            player.playWhenReady = true
+                        }
+                    }, 1000L * retryCount)
+                }
+            }
+        })
+    }
+
+    private fun recordRecent(url: String) {
+        val recents = LinkedHashSet<String>().apply { add(url) }
+        recents.addAll(recentUrls().filter { it != url })
+        getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("recent_channels", recents.take(20).joinToString("\n"))
+            .apply()
+    }
+
+    private fun recentUrls(): List<String> =
+        getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+            .getString("recent_channels", "").orEmpty()
+            .split("\n").filter { it.isNotEmpty() }
+
     private inner class LibraryCallback : MediaLibrarySession.Callback {
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
@@ -75,6 +126,8 @@ class PlaybackService : MediaLibraryService() {
                 .build()
             return Futures.immediateFuture(LibraryResult.ofItem(rootItem, params))
         }
+
+
 
         override fun onGetChildren(
             session: MediaLibrarySession,
@@ -102,6 +155,13 @@ class PlaybackService : MediaLibraryService() {
                         items.add(createPlayableItem(channel))
                     }
                 }
+                parentId == "CAT_Recent" -> {
+                    val recents = recentUrls()
+                    cachedChannels
+                        .filter { recents.contains(it.url) }
+                        .sortedBy { recents.indexOf(it.url) }
+                        .forEach { channel -> items.add(createPlayableItem(channel)) }
+                }
                 parentId.startsWith("CAT_") -> {
                     val category = parentId.substring(4)
                     cachedChannels.filter { (it.category ?: "Other") == category }.forEach { channel ->
@@ -110,6 +170,32 @@ class PlaybackService : MediaLibraryService() {
                 }
             }
             return Futures.immediateFuture(LibraryResult.ofItemList(items, params))
+        }
+
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<Void>> =
+            Futures.immediateFuture(LibraryResult.ofVoid(params))
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val q = query.trim().lowercase()
+            val result = cachedChannels
+                .filter {
+                    it.name.lowercase().contains(q) ||
+                        (it.tvgName ?: "").lowercase().contains(q)
+                }
+                .map { createPlayableItem(it) }
+            return Futures.immediateFuture(LibraryResult.ofItemList(result, params))
         }
 
         private fun createBrowsableItem(id: String, title: String): MediaItem {
@@ -129,6 +215,7 @@ class PlaybackService : MediaLibraryService() {
                 .setUri(channel.url)
                 .setMediaMetadata(MediaMetadata.Builder()
                     .setTitle(channel.name)
+                    .setSubtitle(channel.tvgName ?: channel.category)
                     .setArtworkUri(channel.logoUrl?.let { Uri.parse(it) })
                     .setIsBrowsable(false)
                     .setIsPlayable(true)

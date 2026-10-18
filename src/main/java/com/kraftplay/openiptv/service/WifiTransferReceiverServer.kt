@@ -32,7 +32,7 @@ class WifiTransferReceiverServer(private val onPayload: (String) -> Boolean) {
         val request = line().split(' ')
         var length = 0
         while (true) { val h = line(); if (h.isEmpty()) break; if (h.substringBefore(':').equals("Content-Length", true)) length = h.substringAfter(':').trim().toIntOrNull() ?: 0 }
-        if (request.size < 2 || request[0] != "POST" || request[1].substringBefore('?') != path || length !in 1..5_000_000) { respond(client, 400, "Invalid request"); return }
+        if (request.size < 2 || request[0] != "POST" || request[1].substringBefore('?') != path || length !in 1..50_000_000) { respond(client, 400, "Invalid request"); return }
         val bytes = ByteArray(length); var offset = 0
         while (offset < length) { val n = input.read(bytes, offset, length - offset); if (n < 0) break; offset += n }
         if (offset != length) { respond(client, 400, "Incomplete payload"); return }

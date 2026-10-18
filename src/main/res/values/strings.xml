@@ -237,4 +237,15 @@
     <string name="wifi_dialog_check_connection">check connection</string>
     <string name="wifi_dialog_done">Done</string>
     <string name="wifi_dialog_back">Back</string>
+    <string name="layout_simple_list">Simple list</string>
+    <string name="layout_compact_list">Compact list</string>
+    <string name="layout_compact_list_2">Compact list 2</string>
+    <string name="layout_large_cards">Large cards</string>
+    <string name="layout_small_cards">Small cards</string>
+    <string name="layout_narrow_cards">Very narrow cards</string>
+    <string name="layout_side_by_side">Side by side</string>
+    <string name="layout_side_by_side_small">Side by side small</string>
+    <string name="layout_side_by_side_large">Side by side large</string>
+    <string name="layout_side_by_side_huge">Side by side huge</string>
+    <string name="no_program_info">No programme information</string>
 </resources>
