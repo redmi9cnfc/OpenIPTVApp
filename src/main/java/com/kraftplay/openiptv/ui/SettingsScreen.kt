@@ -3,12 +3,14 @@ package com.kraftplay.openiptv.ui
 import android.net.Uri
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Environment
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.widget.Toast
 import java.net.HttpURLConnection
 import java.net.URL
@@ -33,6 +35,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Upload
@@ -98,30 +101,40 @@ fun SettingsScreen(
                     Toast.makeText(ctx, "APK downloaded, but the file could not be found", Toast.LENGTH_LONG).show()
                     return
                 }
-                // Launch Android's package installer directly as soon as DownloadManager
-                // confirms that the APK is completely downloaded. The URI grant is required
-                // because DownloadManager owns the content:// URI.
-                val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-                    data = apkUri
+                // Android's installer must receive a readable content:// URI. ACTION_VIEW
+                // is more widely supported by Android TV ROMs than ACTION_INSTALL_PACKAGE.
+                // ClipData is important on several Android versions: URI permission flags
+                // alone are not consistently propagated to the package installer.
+                val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(apkUri, "application/vnd.android.package-archive")
+                    clipData = ClipData.newUri(ctx.contentResolver, "KitTV update APK", apkUri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                    putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-                    putExtra(Intent.EXTRA_RETURN_RESULT, false)
                 }
-                runCatching { ctx.startActivity(installIntent) }
-                    .recoverCatching {
-                        // Some Android TV builds do not resolve ACTION_INSTALL_PACKAGE.
-                        val fallback = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(apkUri, "application/vnd.android.package-archive")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                        ctx.startActivity(fallback)
+                val launched = runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                        !ctx.packageManager.canRequestPackageInstalls()) {
+                        val permissionIntent = Intent(
+                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:${ctx.packageName}")
+                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        ctx.startActivity(permissionIntent)
+                        Toast.makeText(ctx, "Разрешите установку неизвестных приложений для KitTV, затем повторите обновление.", Toast.LENGTH_LONG).show()
+                        false
+                    } else {
+                        ctx.startActivity(installIntent)
+                        true
                     }
-                    .onFailure { Toast.makeText(ctx, "APK скачан, но Android не смог открыть установщик. Откройте уведомление о загрузке и выберите установку.", Toast.LENGTH_LONG).show() }
+                }.getOrElse { false }
+                if (!launched) {
+                    Toast.makeText(ctx, "APK загружен. Если установщик не открылся, откройте загрузку KitTV в уведомлениях и запустите APK вручную.", Toast.LENGTH_LONG).show()
+                }
             }
         }
         val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-        if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        else if (Build.VERSION.SDK_INT >= 26) context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        // DownloadManager sends this broadcast from outside our app process, so the
+        // dynamically registered receiver must be exported to receive it on Android 8+.
+        if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+        else if (Build.VERSION.SDK_INT >= 26) context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
         else @Suppress("DEPRECATION") context.registerReceiver(receiver, filter)
         onDispose { runCatching { context.unregisterReceiver(receiver) } }
     }
@@ -130,6 +143,7 @@ fun SettingsScreen(
     val epgSources by viewModel.epgSources.collectAsState()
     val fontSize by viewModel.fontSize.collectAsState()
     val showClock by viewModel.showClock.collectAsState()
+    val clockPosition by viewModel.clockPosition.collectAsState()
     val language by viewModel.language.collectAsState()
     val hidePlaylistUrl by viewModel.hidePlaylistUrl.collectAsState()
     val listSize by viewModel.listSize.collectAsState()
@@ -178,6 +192,7 @@ fun SettingsScreen(
     var showWifiDeviceTransfer by remember { mutableStateOf(false) }
     var showAddEpgDialog by remember { mutableStateOf(false) }
     var showCategoryDialog by remember { mutableStateOf(false) }
+    var showChannelDialog by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
     var showCustomUiDialog by remember { mutableStateOf(false) }
     var customJsonText by remember { mutableStateOf(customThemeJson) }
@@ -242,7 +257,15 @@ fun SettingsScreen(
         LazyColumn(
             modifier = Modifier.padding(paddingValues).fillMaxSize().padding(horizontal = 16.dp)
         ) {
-            item { SectionHeader(stringResource(R.string.playlists)) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SectionHeader(stringResource(R.string.playlists))
+                    IconButton(
+                        onClick = { playlists.firstOrNull { it.isSelected && it.enabled }?.let { viewModel.loadPlaylist(it.url) } },
+                        modifier = Modifier.size(36.dp)
+                    ) { Icon(Icons.Default.Refresh, contentDescription = "Обновить плейлист", modifier = Modifier.size(20.dp)) }
+                }
+            }
             items(playlists) { playlist ->
                 val displayUrl = if (com.kraftplay.openiptv.model.isKitTvPlaylist(playlist.name, playlist.url, playlist.id)) "" else playlist.url
                 PlaylistCard(
@@ -308,6 +331,11 @@ fun SettingsScreen(
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SectionHeader(stringResource(R.string.epg_sources))
+                    IconButton(
+                        onClick = { viewModel.refreshAllEpg(force = true) },
+                        enabled = !isEpgLoading,
+                        modifier = Modifier.size(36.dp)
+                    ) { Icon(Icons.Default.Refresh, contentDescription = "Обновить EPG", modifier = Modifier.size(20.dp)) }
                     if (isEpgLoading) {
                         Spacer(modifier = Modifier.width(8.dp))
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -428,6 +456,9 @@ fun SettingsScreen(
                 TvButton(onClick = { showCategoryDialog = true }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                     Text(stringResource(R.string.manage_categories))
                 }
+                TvButton(onClick = { showChannelDialog = true }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Text("Управление каналами")
+                }
             }
 
             item {
@@ -470,10 +501,12 @@ fun SettingsScreen(
                 val themeLabels = mapOf(
                     "Light" to stringResource(R.string.theme_light),
                     "Dark" to stringResource(R.string.theme_dark),
-                    "AMOLED" to stringResource(R.string.theme_amoled)
+                    "AMOLED" to stringResource(R.string.theme_amoled),
+                    "Halloween" to "🎃 Хеллоуин",
+                    "Winter" to "❄ Зима"
                 )
-                Row {
-                    listOf("Light", "Dark", "AMOLED").forEach { mode ->
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("Light", "Dark", "AMOLED", "Halloween", "Winter").forEach { mode ->
                         TvFilterChip(
                             selected = themeMode == mode,
                             onClick = { viewModel.updateSetting("theme_mode", mode) },
@@ -555,6 +588,26 @@ fun SettingsScreen(
                 }
                 
                 TvSwitchSetting(stringResource(R.string.show_clock), showClock) { viewModel.updateSetting("show_clock", it) }
+                Text("Положение часов в плеере", modifier = Modifier.padding(top = 6.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf("Off", "Top left", "Top right", "Bottom left", "Bottom right").forEach { position ->
+                        val label = when (position) {
+                            "Off" -> "Нет"
+                            "Top left" -> "Сверху слева"
+                            "Top right" -> "Сверху справа"
+                            "Bottom left" -> "Снизу слева"
+                            else -> "Снизу справа"
+                        }
+                        TvFilterChip(selected = clockPosition == position, onClick = {
+                            viewModel.updateSetting("clock_position", position)
+                            viewModel.updateSetting("show_clock", position != "Off")
+                        }, label = { Text(label) })
+                    }
+                }
                 TvSwitchSetting(stringResource(R.string.hide_playlist_url), hidePlaylistUrl) { viewModel.updateSetting("hide_playlist_url", it) }
 
                 SectionHeader(stringResource(R.string.player)) 
@@ -635,8 +688,8 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    listOf("Exit", "Back to list", "Confirm").forEach { b ->
-                        val label = when (b) { "Exit" -> stringResource(R.string.back_exit); "Back to list" -> stringResource(R.string.back_to_list); else -> stringResource(R.string.back_confirm) }
+                    listOf("Exit", "Back to list", "Double press to exit").forEach { b ->
+                        val label = when (b) { "Exit" -> stringResource(R.string.back_exit); "Back to list" -> stringResource(R.string.back_to_list); else -> "Дважды нажать для выхода" }
                         TvFilterChip(selected = backBehavior == b, onClick = { viewModel.updateSetting("back_behavior", b) }, label = { Text(label) })
                     }
                 }
@@ -652,6 +705,7 @@ fun SettingsScreen(
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 var checkingUpdate by remember { mutableStateOf(false) }
+                var pendingUpdate by remember { mutableStateOf<Pair<String, String>?>(null) }
                 TvButton(
                     onClick = {
                         if (!checkingUpdate) {
@@ -716,6 +770,48 @@ fun SettingsScreen(
                                             }
                                         }
                                         if (latest?.apkUrl.isNullOrBlank()) {
+                                            // If /releases/latest is a draft/prerelease or the API's latest endpoint has no APK,
+                                            // inspect recent published releases and choose the first APK asset.
+                                            val releases = runCatching { readUrl("https://api.github.com/repos/redmi9cnfc/OpenIPTVApp/releases?per_page=10") }.getOrNull()
+                                            if (releases != null && releases.first in 200..299) runCatching {
+                                                val arr = org.json.JSONArray(releases.second)
+                                                for (i in 0 until arr.length()) {
+                                                    val release = arr.optJSONObject(i) ?: continue
+                                                    if (release.optBoolean("draft", false)) continue
+                                                    val assets = release.optJSONArray("assets") ?: continue
+                                                    for (j in 0 until assets.length()) {
+                                                        val asset = assets.optJSONObject(j) ?: continue
+                                                        val name = asset.optString("name")
+                                                        val url = asset.optString("browser_download_url")
+                                                        if (name.endsWith(".apk", true) && url.startsWith("https://")) {
+                                                            latest = LatestRelease(release.optString("tag_name", "latest"), url); break
+                                                        }
+                                                    }
+                                                    if (!latest?.apkUrl.isNullOrBlank()) break
+                                                }
+                                            }
+                                        }
+                                        if (latest?.apkUrl.isNullOrBlank()) {
+                                            // Last fallback: some project maintainers commit the APK to the repository
+                                            // instead of attaching it to a release.
+                                            val tree = runCatching { readUrl("https://api.github.com/repos/redmi9cnfc/OpenIPTVApp/git/trees/HEAD?recursive=1") }.getOrNull()
+                                            if (tree != null && tree.first in 200..299) runCatching {
+                                                val root = org.json.JSONObject(tree.second)
+                                                val entries = root.optJSONArray("tree") ?: org.json.JSONArray()
+                                                for (i in 0 until entries.length()) {
+                                                    val entry = entries.optJSONObject(i) ?: continue
+                                                    val path = entry.optString("path")
+                                                    val url = entry.optString("url")
+                                                    if (path.endsWith(".apk", true) && url.startsWith("https://")) {
+                                                        // Use the GitHub contents download URL, not the API blob URL.
+                                                        val branchPath = path.split("/").joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
+                                                        latest = LatestRelease("repository APK", "https://raw.githubusercontent.com/redmi9cnfc/OpenIPTVApp/HEAD/$branchPath")
+                                                        break
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (latest?.apkUrl.isNullOrBlank()) {
                                             val page = readUrl("https://github.com/redmi9cnfc/OpenIPTVApp/releases/latest")
                                             if (page.first in 200..299) {
                                                 val html = page.second.replace("&amp;", "&")
@@ -740,22 +836,8 @@ fun SettingsScreen(
                                                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/redmi9cnfc/OpenIPTVApp/releases/latest")).addCategory(Intent.CATEGORY_BROWSABLE))
                                                 }
                                             } else {
-                                                runCatching {
-                                                    val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                                                    manager.remove(activeUpdateDownloadId ?: -1L)
-                                                    val request = DownloadManager.Request(Uri.parse(apkUrl))
-                                                        .setTitle("OpenIPTV — ${release.tag}")
-                                                        .setDescription("Downloading the latest published APK")
-                                                        .setMimeType("application/vnd.android.package-archive")
-                                                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                                        .setAllowedOverMetered(true)
-                                                        .setAllowedOverRoaming(true)
-                                                        .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "OpenIPTV-latest.apk")
-                                                    activeUpdateDownloadId = manager.enqueue(request)
-                                                    Toast.makeText(context, "Релиз ${release.tag} найден. После полной загрузки автоматически откроется установщик Android.", Toast.LENGTH_LONG).show()
-                                                }.onFailure {
-                                                    Toast.makeText(context, "Could not start update download: ${it.localizedMessage ?: "unknown error"}", Toast.LENGTH_LONG).show()
-                                                }
+                                                // Ask first; the user can cancel without leaving the app.
+                                                pendingUpdate = release.tag to apkUrl
                                             }
                                         }.onFailure { error ->
                                             val message = error.localizedMessage ?: "unknown error"
@@ -770,12 +852,43 @@ fun SettingsScreen(
                 ) {
                     Text(if (checkingUpdate) stringResource(R.string.checking_updates) else stringResource(R.string.update_app))
                 }
+                pendingUpdate?.let { update ->
+                    AlertDialog(
+                        onDismissRequest = { pendingUpdate = null },
+                        title = { Text("Доступно обновление KitTV ${update.first}") },
+                        text = { Text("Загрузить APK и открыть системное окно установки? Приложение останется открытым до подтверждения установки.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                pendingUpdate = null
+                                runCatching {
+                                    val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                                    activeUpdateDownloadId?.let { manager.remove(it) }
+                                    val request = DownloadManager.Request(Uri.parse(update.second))
+                                        .setTitle("KitTV — ${update.first}")
+                                        .setDescription("Загрузка APK для обновления")
+                                        .setMimeType("application/vnd.android.package-archive")
+                                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                        .setAllowedOverMetered(true)
+                                        .setAllowedOverRoaming(true)
+                                        .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "KitTV-latest.apk")
+                                    activeUpdateDownloadId = manager.enqueue(request)
+                                    Toast.makeText(context, "Загрузка началась. После загрузки появится системное окно установки.", Toast.LENGTH_LONG).show()
+                                }.onFailure {
+                                    Toast.makeText(context, "Не удалось начать загрузку: ${it.localizedMessage ?: "неизвестная ошибка"}", Toast.LENGTH_LONG).show()
+                                }
+                            }) { Text("Обновить") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { pendingUpdate = null }) { Text("Позже") }
+                        }
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 TvButton(onClick = { viewModel.clearData() }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
                     Text(stringResource(R.string.clear_data))
                 }
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(stringResource(R.string.version) + " 5.1", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                Text(stringResource(R.string.version) + " 5.2", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
@@ -956,6 +1069,43 @@ fun SettingsScreen(
                 }
             },
             confirmButton = { TextButton(onClick = { showCategoryDialog = false }) { Text(stringResource(R.string.close)) } }
+        )
+    }
+
+    if (showChannelDialog) {
+        val manageableChannels by viewModel.channelManagementList.collectAsState()
+        val hiddenChannelUrls by viewModel.hiddenChannels.collectAsState()
+        var channelSearch by remember { mutableStateOf("") }
+        val filteredManageableChannels = remember(manageableChannels, channelSearch) {
+            if (channelSearch.isBlank()) manageableChannels
+            else manageableChannels.filter { it.name.contains(channelSearch.trim(), ignoreCase = true) || it.url.contains(channelSearch.trim(), ignoreCase = true) }
+        }
+        AlertDialog(
+            onDismissRequest = { showChannelDialog = false },
+            title = { Text("Управление каналами") },
+            text = {
+                Column {
+                    TextField(
+                        value = channelSearch,
+                        onValueChange = { channelSearch = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        placeholder = { Text("Поиск каналов") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                    items(filteredManageableChannels, key = { it.url }) { channel ->
+                        val isVisible = !hiddenChannelUrls.contains(channel.url)
+                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(channel.name, modifier = Modifier.weight(1f), maxLines = 2)
+                            Switch(checked = isVisible, onCheckedChange = { viewModel.toggleHideChannel(channel.url) })
+                        }
+                    }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showChannelDialog = false }) { Text(stringResource(R.string.close)) } }
         )
     }
 

@@ -248,4 +248,15 @@
     <string name="layout_side_by_side_large">Side by side large</string>
     <string name="layout_side_by_side_huge">Side by side huge</string>
     <string name="no_program_info">No programme information</string>
+
+    <!-- Archive Dialog -->
+    <string name="archive">Archive</string>
+    <string name="channel">channel</string>
+    <string name="archive_no_epg">No archived programmes were found in the loaded EPG for the last 14 days. Archive depth and availability depend on your provider.</string>
+    <string name="archive_last_hours">Last %1$d hours</string>
+    <string name="archive_format_unknown">format unknown</string>
+    <string name="archive_open">open archive</string>
+    <string name="archive_no_metadata">The playlist has no EPG or archive metadata. You can try the standard Flussonic archive; it will work only if the provider records this channel.</string>
+    <string name="archive_rewind_hours">Rewind %1$d hours</string>
+    <string name="no_audio_tracks">No audio tracks available</string>
 </resources>

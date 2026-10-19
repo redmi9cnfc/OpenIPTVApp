@@ -11,6 +11,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.core.view.WindowCompat
@@ -123,6 +125,14 @@ class MainActivity : ComponentActivity() {
                         surface = Color.Black,
                         surfaceVariant = Color.Black
                     )
+                    "Halloween" -> darkColorScheme(
+                        primary = Color(0xFFFF7518), secondary = Color(0xFF9B4DCA),
+                        background = Color(0xFF160D20), surface = Color(0xFF24152E)
+                    )
+                    "Winter" -> darkColorScheme(
+                        primary = Color(0xFF8ED8FF), secondary = Color(0xFFB8E7FF),
+                        background = Color(0xFF071827), surface = Color(0xFF102B40)
+                    )
                     else -> darkColorScheme(
                         primary = accentColor,
                         background = Color(0xFF121212),
@@ -148,7 +158,7 @@ class MainActivity : ComponentActivity() {
                         if (currentRoute == "main") {
                             when(backBehavior) {
                                 "Exit" -> (this@MainActivity as Activity).finish()
-                                "Confirm" -> {
+                                "Confirm", "Double press to exit" -> {
                                     val now = System.currentTimeMillis()
                                     if (now - lastBackPressTime < 2000) {
                                         (this@MainActivity as Activity).finish()
@@ -166,7 +176,10 @@ class MainActivity : ComponentActivity() {
 
                     Surface(color = MaterialTheme.colorScheme.background) {
                         com.kraftplay.openiptv.ui.StyledBackground(uiStyle = uiStyle) {
-                            OpenIptvApp(viewModel, navController, this@MainActivity)
+                            Box(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
+                                OpenIptvApp(viewModel, navController, this@MainActivity)
+                                com.kraftplay.openiptv.ui.SeasonalEffects(themeMode = themeMode)
+                            }
                         }
                     }
                 }

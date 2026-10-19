@@ -11,6 +11,7 @@ import com.kraftplay.openiptv.model.EpgProgram
 import com.kraftplay.openiptv.model.EpgSource
 import com.kraftplay.openiptv.model.IptvChannel
 import com.kraftplay.openiptv.model.Playlist
+import com.kraftplay.openiptv.model.isKitTvPlaylist
 import com.kraftplay.openiptv.util.EpgMatcher
 import com.kraftplay.openiptv.parser.M3uParser
 import com.kraftplay.openiptv.parser.XmlTvParser
@@ -43,15 +44,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val cacheFile = File(application.cacheDir, "channels_cache.json")
     private val epgDao = EpgDatabase.getDatabase(application).epgDao()
     
+    private val defaultKitTvUrl = ""
     private val defaultKitTvPlaylist = Playlist(
         id = "kittv-default",
         name = "KitTV",
-        url = "https://raw.githubusercontent.com/redmi9cnfc/TV/refs/heads/main/Kit.m3u",
+        url = defaultKitTvUrl,
         isSelected = true,
         autoUpdateInterval = "On launch"
     )
-    private val _playlists = MutableStateFlow<List<Playlist>>(
-        loadPlaylistsFromPrefs().ifEmpty { listOf(defaultKitTvPlaylist) }
+    private val _playlists = MutableStateFlow(
+        loadPlaylistsFromPrefs().ifEmpty { listOf(defaultKitTvPlaylist) }.map { playlist ->
+            // Repair the built-in playlist even when an older app version saved a stale URL/name.
+            if (playlist.id == "kittv-default" || playlist.name.equals("KitTV", true)) {
+                playlist.copy(id = if (playlist.id.isBlank()) "kittv-default" else playlist.id, name = "KitTV", url = defaultKitTvUrl)
+            } else playlist
+        }
     )
     val playlists: StateFlow<List<Playlist>> = _playlists
 
@@ -91,6 +98,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _hiddenCategories = MutableStateFlow<Set<String>>(loadHiddenCategoriesFromPrefs())
     val hiddenCategories: StateFlow<Set<String>> = _hiddenCategories
+    private val _hiddenChannels = MutableStateFlow<Set<String>>(prefs.getStringSet("hidden_channels", emptySet()) ?: emptySet())
+    val hiddenChannels: StateFlow<Set<String>> = _hiddenChannels
+    val channelManagementList: StateFlow<List<IptvChannel>> = _rawChannels
 
     private val _epgSources = MutableStateFlow<List<EpgSource>>(loadEpgSourcesFromPrefs())
     val epgSources: StateFlow<List<EpgSource>> = _epgSources
@@ -125,6 +135,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val fontSize = MutableStateFlow(prefs.getFloat("font_size", 14f))
     val showClock = MutableStateFlow(prefs.getBoolean("show_clock", true))
+    val clockPosition = MutableStateFlow(prefs.getString("clock_position", "Top right") ?: "Top right")
     val language = MutableStateFlow(prefs.getString("language", if (Locale.getDefault().language == "ru") "ru" else "en") ?: if (Locale.getDefault().language == "ru") "ru" else "en")
     val hidePlaylistUrl = MutableStateFlow(prefs.getBoolean("hide_playlist_url", false))
     val listSize = MutableStateFlow(prefs.getString("list_size", "Standard") ?: "Standard")
@@ -175,7 +186,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val filteredChannels: StateFlow<List<IptvChannel>> = combine(
-        allChannels, _selectedCategory, _searchQuery, _recentChannels, selectedFolder, categoryDisplayMode
+        allChannels, _selectedCategory, _searchQuery, _recentChannels, selectedFolder, categoryDisplayMode, _hiddenChannels
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val channels = array[0] as List<IptvChannel>
@@ -185,9 +196,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val recents = array[3] as List<IptvChannel>
         val folder = array[4] as? String
         val mode = array[5] as String
+        @Suppress("UNCHECKED_CAST")
+        val hiddenChannels = array[6] as Set<String>
 
         val activeCategory = if (mode == "Folders" && folder != null) folder else category
-        val baseList = if (activeCategory == "Recent") recents else channels
+        val baseList = (if (activeCategory == "Recent") recents else channels).filterNot { hiddenChannels.contains(it.url) }
         val filtered = baseList.filter { channel ->
             val matchesCategory = when(activeCategory) {
                 "All" -> true
@@ -256,8 +269,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        val today = Calendar.getInstance()
+        val seasonalTheme = when {
+            today.get(Calendar.MONTH) == Calendar.OCTOBER && today.get(Calendar.DAY_OF_MONTH) == 31 -> "Halloween"
+            today.get(Calendar.MONTH) == Calendar.DECEMBER && today.get(Calendar.DAY_OF_MONTH) == 31 -> "Winter"
+            else -> null
+        }
+        if (seasonalTheme != null) {
+            themeMode.value = seasonalTheme
+            prefs.edit().putString("theme_mode", seasonalTheme).apply()
+        }
         // Seed KitTV as the default source on a fresh install; retain any user playlists.
-        if (prefs.getString("playlists_json", null).isNullOrBlank() || loadPlaylistsFromPrefs().isEmpty()) {
+        // Persist normalized defaults/migrations so stale saved URLs cannot reappear on next launch.
+        if (prefs.getString("playlists_json", null).isNullOrBlank() ||
+            loadPlaylistsFromPrefs().isEmpty() ||
+            loadPlaylistsFromPrefs() != _playlists.value) {
             savePlaylistsToPrefs()
         }
         val selectedPlaylist = _playlists.value.find { it.isSelected }
@@ -403,7 +429,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val now = System.currentTimeMillis()
-                epgDao.deleteExpired(now - 1209600000L)
+                epgDao.pruneWindow(now - 6L * 60L * 60L * 1000L, now + 7L * 24L * 60L * 60L * 1000L)
                 val cached = epgDao.getAllValidPrograms(now)
                 if (cached.isNotEmpty()) {
                     processLoadedEpg(cached)
@@ -490,6 +516,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun loadPinnedFromPrefs(): Set<String> = prefs.getStringSet("pinned_channels", emptySet()) ?: emptySet()
+
+    fun toggleHideChannel(url: String) {
+        val updated = _hiddenChannels.value.toMutableSet()
+        if (!updated.add(url)) updated.remove(url)
+        _hiddenChannels.value = updated
+        prefs.edit().putStringSet("hidden_channels", updated).apply()
+    }
 
     fun toggleHideCategory(category: String) {
         val currentHidden = _hiddenCategories.value.toMutableSet()
@@ -581,7 +614,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             .url(source)
                             .header("User-Agent", "VLC/3.0.20 LibVLC/3.0.20")
                             .header("Accept", "*/*")
-                            .header("Accept-Encoding", "gzip")
                             .header("Connection", "keep-alive")
                             .get()
                             .build()
@@ -714,14 +746,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _epgStatus.value = "LOADING"
         
         viewModelScope.launch(Dispatchers.IO) {
-            val cutoffTime = System.currentTimeMillis() - 14L * 24L * 3600L * 1000L
+            val epgNow = System.currentTimeMillis()
+            // Keep only a compact rolling guide window: 6 hours of past data and 7 days ahead.
+            val cutoffTime = epgNow - 6L * 60L * 60L * 1000L
+            val futureLimit = epgNow + 7L * 24L * 60L * 60L * 1000L
             
             // Keep the currently available EPG visible while refreshing. New programmes
             // are written into Room in batches; deleting the database before the download
             // completes made the guide disappear and permanently lost it if the app closed.
             // Remove only expired entries, regardless of whether this is a forced refresh.
             try {
-                epgDao.deleteExpired(cutoffTime)
+                epgDao.pruneWindow(cutoffTime, futureLimit)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -793,6 +828,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             val now = System.currentTimeMillis()
+            runCatching { epgDao.pruneWindow(now - 6L * 60L * 60L * 1000L, now + 7L * 24L * 60L * 60L * 1000L) }
+            // Avoid a full SQLite compaction after every import: it blocks completion on large EPGs.
+            // Window pruning keeps the working set bounded; storage compaction can be done separately.
             val updatedSources = _epgSources.value.map { source ->
                 if (enabledSources.any { it.id == source.id }) source.copy(lastUpdatedTime = now) else source
             }
@@ -846,7 +884,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // SAF/Downloads content:// URIs are valid only on the device that granted access.
         // Embed local playlist files in the transfer so the receiving TV never opens the sender's URI.
         val resolver = getApplication<Application>().contentResolver
-        val portablePlaylists = _playlists.value.map { playlist ->
+        val portablePlaylists = _playlists.value.filterNot { isKitTvPlaylist(it.name, it.url, it.id) }.map { playlist ->
             val localBytes = runCatching {
                 when {
                     playlist.url.startsWith("content://", ignoreCase = true) ->
@@ -871,7 +909,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun exportBackupJson(): String {
         val map = mapOf(
-            "playlists" to Json.encodeToString(_playlists.value),
+            "playlists" to Json.encodeToString(_playlists.value.filterNot { isKitTvPlaylist(it.name, it.url, it.id) }),
             "epgSources" to Json.encodeToString(_epgSources.value),
             "favorites" to Json.encodeToString(_favorites.value),
             "pinned" to Json.encodeToString(_pinnedUrls.value),
@@ -884,7 +922,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return try {
             val map: Map<String, String> = Json.decodeFromString(jsonString)
             map["playlists"]?.let {
-                val imported: List<Playlist> = Json.decodeFromString(it)
+                val imported: List<Playlist> = Json.decodeFromString<List<Playlist>>(it).filterNot { p -> isKitTvPlaylist(p.name, p.url, p.id) }
                 // Convert transferred inline file data into a private local file on this device.
                 val playlistDir = File(getApplication<Application>().filesDir, "imported_playlists").apply { mkdirs() }
                 _playlists.value = imported.map { playlist ->
@@ -947,6 +985,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "accent_color" -> accentColor.value = value
                     "last_channel_url" -> lastChannelUrl.value = value
                     "back_behavior" -> backBehavior.value = value
+                    "clock_position" -> clockPosition.value = value
                     "buffering_level" -> bufferingLevel.value = value
                     "group_sort_order" -> groupSortOrder.value = value
                     "resolution_format" -> resolutionFormat.value = value
@@ -988,18 +1027,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updatePlaylist(updatedPlaylist: Playlist) {
-        val list = _playlists.value.map {
-            if (it.id == updatedPlaylist.id) updatedPlaylist else it
+        val previousSelected = _playlists.value.any { it.id == updatedPlaylist.id && it.isSelected }
+        var list = _playlists.value.map { current ->
+            if (current.id == updatedPlaylist.id) updatedPlaylist else current
+        }
+        if (!updatedPlaylist.enabled && previousSelected) {
+            // A disabled playlist must not remain selected; switch to another enabled source.
+            val fallback = list.firstOrNull { it.enabled && it.id != updatedPlaylist.id }
+            list = list.map { it.copy(isSelected = fallback?.id == it.id) }
+            _playlists.value = list
+            savePlaylistsToPrefs()
+            if (fallback != null) loadPlaylist(fallback.url) else {
+                _rawChannels.value = emptyList()
+                if (cacheFile.exists()) cacheFile.delete()
+            }
+            return
+        }
+        if (updatedPlaylist.enabled && updatedPlaylist.isSelected) {
+            list = list.map { it.copy(isSelected = it.id == updatedPlaylist.id) }
         }
         _playlists.value = list
         savePlaylistsToPrefs()
-        if (updatedPlaylist.isSelected) {
-            if (updatedPlaylist.enabled) {
-                loadPlaylist(updatedPlaylist.url)
-            } else {
-                _rawChannels.value = emptyList()
-            }
-        }
+        if (updatedPlaylist.isSelected && updatedPlaylist.enabled) loadPlaylist(updatedPlaylist.url)
     }
 
     fun updateEpgSource(updatedEpgSource: EpgSource) {

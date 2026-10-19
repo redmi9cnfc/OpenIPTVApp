@@ -15,10 +15,13 @@ interface EpgDao {
     @Query("SELECT COUNT(*) FROM epg_programs")
     suspend fun getProgramCount(): Int
 
+    @Query("DELETE FROM epg_programs WHERE endTime < :cutoffTime OR startTime > :futureLimit")
+    suspend fun pruneWindow(cutoffTime: Long, futureLimit: Long)
+
     @Query("DELETE FROM epg_programs WHERE endTime < :cutoffTime")
     suspend fun deleteExpired(cutoffTime: Long)
 
-    @Query("SELECT * FROM epg_programs WHERE endTime > (:now - 1209600000) ORDER BY startTime ASC")
+    @Query("SELECT * FROM epg_programs WHERE endTime > (:now - 21600000) AND startTime < (:now + 604800000) ORDER BY startTime ASC")
     suspend fun getAllValidPrograms(now: Long): List<EpgProgram>
 
     @Query("SELECT * FROM epg_programs WHERE LOWER(channelId) = LOWER(:channelId) AND endTime > :now ORDER BY startTime ASC")

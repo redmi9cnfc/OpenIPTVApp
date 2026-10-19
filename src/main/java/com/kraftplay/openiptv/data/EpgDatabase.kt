@@ -10,6 +10,13 @@ import com.kraftplay.openiptv.model.EpgProgram
 abstract class EpgDatabase : RoomDatabase() {
     abstract fun epgDao(): EpgDao
 
+    /** Trims the WAL and reclaims pages after pruning the rolling EPG window. */
+    fun compactStorage() {
+        val db = openHelper.writableDatabase
+        runCatching { db.query("PRAGMA wal_checkpoint(TRUNCATE)").close() }
+        runCatching { db.execSQL("VACUUM") }
+    }
+
     companion object {
         @Volatile
         private var INSTANCE: EpgDatabase? = null

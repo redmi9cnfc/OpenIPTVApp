@@ -87,6 +87,8 @@ fun PlayerScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val allChannels by viewModel.allChannels.collectAsState()
+    val clockEnabled by viewModel.showClock.collectAsState()
+    val clockPosition by viewModel.clockPosition.collectAsState()
     val currentPrograms by viewModel.currentPrograms.collectAsState()
     val epgPrograms by viewModel.epgPrograms.collectAsState()
     val catchupMode by viewModel.catchupMode.collectAsState()
@@ -94,7 +96,14 @@ fun PlayerScreen(
     val recentChannels by viewModel.recentChannels.collectAsState()
     val channelViewingTimes by viewModel.channelViewingTimes.collectAsState()
     
-    val showSourceOpt by viewModel.showSource.collectAsState()
+    val showSourceSetting by viewModel.showSource.collectAsState()
+    val selectedPlaylists by viewModel.playlists.collectAsState()
+    val selectedPlaylist = selectedPlaylists.firstOrNull { it.isSelected }
+    // KitTV intentionally hides stream URLs; all other playlists always show their source.
+    // Do not let the old global preference accidentally hide sources for third-party playlists.
+    val showSourceOpt = !com.kraftplay.openiptv.model.isKitTvPlaylist(
+        selectedPlaylist?.name.orEmpty(), selectedPlaylist?.url.orEmpty(), selectedPlaylist?.id.orEmpty()
+    )
     val showResolutionOpt by viewModel.showResolution.collectAsState()
     val showFpsOpt by viewModel.showFps.collectAsState()
     val uiStyle by viewModel.uiStyle.collectAsState()
@@ -175,6 +184,16 @@ fun PlayerScreen(
     }
 
     var showInfoPanel by remember { mutableStateOf(true) }
+    // Poll Media3 playback position so the archive timeline remains live while the player is open.
+    var archivePositionMs by remember { mutableLongStateOf(0L) }
+    var archiveDurationMs by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(exoPlayer, isArchivePlayback) {
+        while (true) {
+            archivePositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+            archiveDurationMs = exoPlayer.duration.takeIf { it > 0L && it != C.TIME_UNSET } ?: 0L
+            delay(500)
+        }
+    }
     var isPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
     var videoQuality by remember { mutableStateOf("Calculating...") }
@@ -666,6 +685,41 @@ fun PlayerScreen(
                     .focusGroup()
                     .padding(16.dp)
                 ) {
+                    if (isArchivePlayback && archiveDurationMs > 0L) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = formatPlaybackTime(archivePositionMs),
+                                color = Color.White,
+                                fontSize = 12.sp
+                            )
+                            Slider(
+                                value = archivePositionMs.coerceIn(0L, archiveDurationMs).toFloat(),
+                                onValueChange = { value ->
+                                    archivePositionMs = value.toLong()
+                                    userInteracted()
+                                },
+                                onValueChangeFinished = {
+                                    exoPlayer.seekTo(archivePositionMs.coerceIn(0L, archiveDurationMs))
+                                },
+                                valueRange = 0f..archiveDurationMs.toFloat(),
+                                modifier = Modifier.weight(1f),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = MaterialTheme.colorScheme.primary,
+                                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                                    inactiveTrackColor = Color.White.copy(alpha = 0.35f)
+                                )
+                            )
+                            Text(
+                                text = formatPlaybackTime(archiveDurationMs),
+                                color = Color.White,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         AsyncImage(
                             model = currentChannel?.logoUrl,
@@ -852,7 +906,7 @@ fun PlayerScreen(
             )
             AlertDialog(
                 onDismissRequest = { showArchiveDialog = false },
-                title = { Text("Archive — ${channel?.name ?: "channel"}") },
+                title = { Text("${stringResource(R.string.archive)} — ${channel?.name ?: stringResource(R.string.channel)}") },
                 text = {
                     Column(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
@@ -900,7 +954,7 @@ fun PlayerScreen(
                                         Text(archivedProgram.title, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                                         Text(
                                             "${dateFormat.format(Date(archivedProgram.startTime))}–${dateFormat.format(Date(archivedProgram.endTime))}" +
-                                                if (archiveUrl == null) " · archive URL could not be created" else "",
+                                                if (archiveUrl == null) " · ${stringResource(R.string.archive_format_unknown)}" else "",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = if (archiveUrl == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -909,7 +963,7 @@ fun PlayerScreen(
                             }
                         } else if (supportsCatchup) {
                             Text(
-                                "No archived programmes were found in the loaded EPG for the last 14 days. Archive depth and availability depend on your provider.",
+                                stringResource(R.string.archive_no_epg),
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             listOf(1, 2, 3, 6, 12, 24, 48, 72).forEach { hours ->
@@ -941,11 +995,12 @@ fun PlayerScreen(
                                     enabled = archiveUrl != null,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("Last $hours hours ${if (archiveUrl == null) "· format unknown" else "· open archive"}")
+                                    val actionText = if (archiveUrl == null) stringResource(R.string.archive_format_unknown) else stringResource(R.string.archive_open)
+                                    Text("${stringResource(R.string.archive_last_hours, hours)} · $actionText")
                                 }
                             }
                         } else {
-                            Text("The playlist has no EPG or archive metadata. You can try the standard Flussonic archive; it will work only if the provider records this channel.")
+                            Text(stringResource(R.string.archive_no_metadata))
                             listOf(1, 2, 3, 6, 12, 24, 48, 72).forEach { hours ->
                                 val archiveUrl = channel?.let { CatchupUrlBuilder.buildRelative(it.url, "Flussonic", hours.toLong() * 3600L) }
                                 TextButton(
@@ -961,12 +1016,12 @@ fun PlayerScreen(
                                     },
                                     enabled = archiveUrl != null,
                                     modifier = Modifier.fillMaxWidth()
-                                ) { Text("Rewind $hours hours") }
+                                ) { Text(stringResource(R.string.archive_rewind_hours, hours)) }
                             }
                         }
                     }
                 },
-                confirmButton = { TextButton(onClick = { showArchiveDialog = false }) { Text("Close") } }
+                confirmButton = { TextButton(onClick = { showArchiveDialog = false }) { Text(stringResource(R.string.close)) } }
             )
         }
 
@@ -1004,7 +1059,7 @@ fun PlayerScreen(
                                 }
                             }
                         } else {
-                            Text("No audio tracks available")
+                            Text(stringResource(R.string.no_audio_tracks))
                         }
                     }
                 },
@@ -1090,6 +1145,27 @@ fun PlayerScreen(
                 }
             )
         }
+        // Persistent clock overlay: independent of the auto-hiding player controls.
+        if (clockEnabled && clockPosition != "Off") {
+            val clockAlignment = when (clockPosition) {
+                "Top left" -> Alignment.TopStart
+                "Top right" -> Alignment.TopEnd
+                "Bottom left" -> Alignment.BottomStart
+                "Bottom right" -> Alignment.BottomEnd
+                else -> Alignment.TopEnd
+            }
+            Text(
+                text = currentTime,
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .align(clockAlignment)
+                    .padding(18.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+        }
     }
 }
 
@@ -1165,4 +1241,14 @@ fun RecentChannelCard(channel: IptvChannel, modifier: Modifier = Modifier, onCli
             Text(channel.name, color = Color.White, fontSize = 12.sp, maxLines = 1)
         }
     }
+}
+
+
+private fun formatPlaybackTime(positionMs: Long): String {
+    val totalSeconds = (positionMs.coerceAtLeast(0L) / 1000L)
+    val hours = totalSeconds / 3600L
+    val minutes = (totalSeconds % 3600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, seconds)
+    else String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
 }
