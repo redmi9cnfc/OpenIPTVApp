@@ -144,10 +144,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val groupSortOrder = MutableStateFlow(prefs.getString("group_sort_order", "Provider") ?: "Provider")
     val uiStyle = MutableStateFlow(prefs.getString("ui_style", "Material3") ?: "Material3")
 
-    val showSource = MutableStateFlow(prefs.getBoolean("show_source", true))
-    val showResolution = MutableStateFlow(prefs.getBoolean("show_resolution", true))
-    val showFps = MutableStateFlow(prefs.getBoolean("show_fps", true))
+    val showSource = MutableStateFlow(prefs.getBoolean("show_source", false))
+    val showResolution = MutableStateFlow(prefs.getBoolean("show_resolution", false))
+    val showFps = MutableStateFlow(prefs.getBoolean("show_fps", false))
+    val showCodecs = MutableStateFlow(prefs.getBoolean("show_codecs", false))
+    val showBitrate = MutableStateFlow(prefs.getBoolean("show_bitrate", false))
     val resolutionFormat = MutableStateFlow(prefs.getString("resolution_format", "Dimensions") ?: "Dimensions")
+    val badgeShape = MutableStateFlow(prefs.getString("badge_shape", "Cookie") ?: "Cookie")
+    val badgeColor = MutableStateFlow(prefs.getString("badge_color", "Auto") ?: "Auto")
+    val panelColor = MutableStateFlow(prefs.getString("panel_color", "Auto") ?: "Auto")
+
+    val expressiveGlow = MutableStateFlow(prefs.getBoolean("expressive_glow", true))
+    val waveAmplitude = MutableStateFlow(prefs.getFloat("wave_amplitude", 0.08f))
+    val waveSpeed = MutableStateFlow(prefs.getFloat("wave_speed", 1.0f))
+    val cardCornerRadius = MutableStateFlow(prefs.getInt("card_corner_radius", 22))
+    val springScale = MutableStateFlow(prefs.getFloat("spring_scale", 1.08f))
+    val ambientCanvas = MutableStateFlow(prefs.getBoolean("ambient_canvas", true))
+    val epgProgressStyle = MutableStateFlow(prefs.getString("epg_progress_style", "Wavy") ?: "Wavy")
+    val playerGlassTint = MutableStateFlow(prefs.getString("player_glass_tint", "Dark Glass") ?: "Dark Glass")
+    val cardBadgeStyle = MutableStateFlow(prefs.getString("card_badge_style", "Floating Pill") ?: "Floating Pill")
 
     val autoStartLast = MutableStateFlow(prefs.getBoolean("auto_start_last", false))
     val lastChannelUrl = MutableStateFlow(prefs.getString("last_channel_url", "") ?: "")
@@ -161,13 +176,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val fullScreenByDefault = MutableStateFlow(prefs.getBoolean("full_screen_default", true))
     val aspectRatioMode = MutableStateFlow(prefs.getString("aspect_ratio_mode", "16:9") ?: "16:9")
     val catchupMode = MutableStateFlow(prefs.getString("catchup_mode", "Auto") ?: "Auto")
+    val hardwareDecoder = MutableStateFlow(prefs.getString("hardware_decoder", "Auto") ?: "Auto")
+    val showChannelNumbers = MutableStateFlow(prefs.getBoolean("show_channel_numbers", true))
+    val volumeGestureEnabled = MutableStateFlow(prefs.getBoolean("volume_gesture_enabled", true))
+    val epgUpdateInterval = MutableStateFlow(prefs.getString("epg_update_interval", "On launch") ?: "On launch")
     
     val playbackSpeed = MutableStateFlow(1.0f)
     val audioVolumeBoost = MutableStateFlow(1.0f)
 
-    val categories: StateFlow<List<String>> = combine(_rawChannels, groupSortOrder, _hiddenCategories) { channels, sortOrder, hidden ->
+    val iconRotationEnabled = MutableStateFlow(prefs.getBoolean("icon_rotation_enabled", true))
+    val lockedFolders = MutableStateFlow<Map<String, String>>(loadLockedFoldersFromPrefs())
+    val customCategoryOrder = MutableStateFlow<List<String>>(loadCustomCategoryOrderFromPrefs())
+    val customChannelOrder = MutableStateFlow<List<String>>(loadCustomChannelOrderFromPrefs())
+
+    val categories: StateFlow<List<String>> = combine(_rawChannels, groupSortOrder, _hiddenCategories, customCategoryOrder) { channels, sortOrder, hidden, customOrder ->
         val cats = channels.mapNotNull { it.category }.filter { it.isNotEmpty() }.distinct()
-        val sortedCats = if (sortOrder == "Alphabetical") cats.sorted() else cats
+        val orderMap = customOrder.withIndex().associate { it.value to it.index }
+        val sortedCats = if (sortOrder == "Alphabetical") cats.sorted() else cats.sortedBy { orderMap[it] ?: Int.MAX_VALUE }
         listOf("All", "Favorites", "Recent") + sortedCats
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("All", "Favorites", "Recent"))
 
@@ -186,7 +211,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val filteredChannels: StateFlow<List<IptvChannel>> = combine(
-        allChannels, _selectedCategory, _searchQuery, _recentChannels, selectedFolder, categoryDisplayMode, _hiddenChannels
+        allChannels, _selectedCategory, _searchQuery, _recentChannels, selectedFolder, categoryDisplayMode, _hiddenChannels, customChannelOrder
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val channels = array[0] as List<IptvChannel>
@@ -198,6 +223,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val mode = array[5] as String
         @Suppress("UNCHECKED_CAST")
         val hiddenChannels = array[6] as Set<String>
+        @Suppress("UNCHECKED_CAST")
+        val channelOrder = array[7] as List<String>
 
         val activeCategory = if (mode == "Folders" && folder != null) folder else category
         val baseList = (if (activeCategory == "Recent") recents else channels).filterNot { hiddenChannels.contains(it.url) }
@@ -211,7 +238,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val matchesSearch = channel.name.contains(query, ignoreCase = true)
             matchesCategory && matchesSearch
         }
-        filtered.sortedWith(compareByDescending<IptvChannel> { it.isPinned }.thenByDescending { it.isFavorite })
+        val orderMap = channelOrder.withIndex().associate { it.value to it.index }
+        filtered.sortedWith(
+            compareByDescending<IptvChannel> { it.isPinned }
+            .thenByDescending { it.isFavorite }
+            .thenBy { orderMap[it.url] ?: Int.MAX_VALUE }
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _isLoading = MutableStateFlow(false)
@@ -246,9 +278,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "15 min" -> elapsed >= 15 * 60 * 1000L
             "30 min" -> elapsed >= 30 * 60 * 1000L
             "1 hour" -> elapsed >= 60 * 60 * 1000L
-            "1 day" -> elapsed >= 24 * 60 * 60 * 1000L
-            "Disabled", "Off" -> false
-            else -> isAppLaunch
+            "12 hours" -> elapsed >= 12 * 60 * 60 * 1000L
+            "24 hours", "1 day" -> elapsed >= 24 * 60 * 60 * 1000L
+            "2 days" -> elapsed >= 2 * 24 * 60 * 60 * 1000L
+            "7 days" -> elapsed >= 7 * 24 * 60 * 60 * 1000L
+            "Off", "Disabled", "Никогда" -> false
+            else -> false
         }
     }
 
@@ -262,9 +297,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "15 min" -> elapsed >= 15 * 60 * 1000L
             "30 min" -> elapsed >= 30 * 60 * 1000L
             "1 hour" -> elapsed >= 60 * 60 * 1000L
-            "1 day" -> elapsed >= 24 * 60 * 60 * 1000L
-            "Disabled", "Off" -> false
-            else -> isAppLaunch
+            "12 hours" -> elapsed >= 12 * 60 * 60 * 1000L
+            "24 hours", "1 day" -> elapsed >= 24 * 60 * 60 * 1000L
+            "2 days" -> elapsed >= 2 * 24 * 60 * 60 * 1000L
+            "7 days" -> elapsed >= 7 * 24 * 60 * 60 * 1000L
+            "Off", "Disabled", "Никогда" -> false
+            else -> false
         }
     }
 
@@ -429,7 +467,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val now = System.currentTimeMillis()
-                epgDao.pruneWindow(now - 6L * 60L * 60L * 1000L, now + 7L * 24L * 60L * 60L * 1000L)
+                epgDao.pruneWindow(now - 30L * 24L * 60L * 60L * 1000L, now + 30L * 24L * 60L * 60L * 1000L)
                 val cached = epgDao.getAllValidPrograms(now)
                 if (cached.isNotEmpty()) {
                     processLoadedEpg(cached)
@@ -440,17 +478,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val xmlTvChannelNamesMap = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+
     private suspend fun processLoadedEpg(programs: List<EpgProgram>) = withContext(Dispatchers.Default) {
-        // A refresh can overlap cached programmes with newly downloaded rows. De-duplicate
-        // in memory so the guide remains stable while Room retains the cache across launches.
-        val distinctProgs = programs.distinctBy {
-            "${it.channelId.lowercase(Locale.ROOT).trim()}|${it.startTime}|${it.endTime}|${it.title.trim()}"
-        }
         val exactMap = mutableMapOf<String, MutableList<EpgProgram>>()
         val cleanMap = mutableMapOf<String, MutableList<EpgProgram>>()
         val translitMap = mutableMapOf<String, MutableList<EpgProgram>>()
 
-        distinctProgs.forEach { prog ->
+        programs.forEach { prog ->
             val exactKey = prog.channelId.lowercase().trim()
             if (exactKey.isNotEmpty()) {
                 exactMap.getOrPut(exactKey) { mutableListOf() }.add(prog)
@@ -463,6 +498,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     translitMap.getOrPut(translitKey) { mutableListOf() }.add(prog)
                 }
             }
+
+            val displayNames = xmlTvChannelNamesMap[exactKey]
+            displayNames?.forEach { name ->
+                val cKey = EpgMatcher.cleanName(name)
+                if (cKey.isNotEmpty()) {
+                    cleanMap.getOrPut(cKey) { mutableListOf() }.add(prog)
+                    val tKey = EpgMatcher.transliterate(cKey)
+                    if (tKey.isNotEmpty()) {
+                        translitMap.getOrPut(tKey) { mutableListOf() }.add(prog)
+                    }
+                }
+            }
         }
 
         epgDataMap = exactMap.mapValues { entry -> entry.value.sortedBy { it.startTime } }
@@ -470,7 +517,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         epgTranslitNameMap = translitMap.mapValues { entry -> entry.value.sortedBy { it.startTime } }
         
         withContext(Dispatchers.Main) {
-            _epgPrograms.value = distinctProgs
+            _epgPrograms.value = programs
             updateCurrentPrograms()
         }
     }
@@ -746,104 +793,112 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _epgStatus.value = "LOADING"
         
         viewModelScope.launch(Dispatchers.IO) {
-            val epgNow = System.currentTimeMillis()
-            // Keep only a compact rolling guide window: 6 hours of past data and 7 days ahead.
-            val cutoffTime = epgNow - 6L * 60L * 60L * 1000L
-            val futureLimit = epgNow + 7L * 24L * 60L * 60L * 1000L
-            
-            // Keep the currently available EPG visible while refreshing. New programmes
-            // are written into Room in batches; deleting the database before the download
-            // completes made the guide disappear and permanently lost it if the app closed.
-            // Remove only expired entries, regardless of whether this is a forced refresh.
             try {
-                epgDao.pruneWindow(cutoffTime, futureLimit)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-
-            for (source in enabledSources) {
+                val epgNow = System.currentTimeMillis()
+                val cutoffTime = epgNow - 30L * 24L * 60L * 60L * 1000L
+                val futureLimit = epgNow + 30L * 24L * 60L * 60L * 1000L
+                
                 try {
-                    val request = Request.Builder()
-                        .url(source.url)
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                        .build()
-                    client.newCall(request).execute().use { response ->
-                        if (response.isSuccessful) {
-                            response.body?.let { body ->
-                                val contentLength = body.contentLength()
-                                val rawStream = body.byteStream()
+                    epgDao.pruneWindow(cutoffTime, futureLimit)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
 
-                                var bytesReadTotal = 0L
-                                val countingStream = object : java.io.FilterInputStream(rawStream) {
-                                    override fun read(): Int {
-                                        val b = super.read()
-                                        if (b != -1) {
-                                            bytesReadTotal++
-                                            updateProgress(bytesReadTotal, contentLength)
-                                        }
-                                        return b
-                                    }
-                                    override fun read(b: ByteArray, off: Int, len: Int): Int {
-                                        val r = super.read(b, off, len)
-                                        if (r > 0) {
-                                            bytesReadTotal += r
-                                            updateProgress(bytesReadTotal, contentLength)
-                                        }
-                                        return r
-                                    }
-                                    private fun updateProgress(current: Long, total: Long) {
-                                        val currentMB = current / (1024.0 * 1024.0)
-                                        val progressStr = if (total > 0) {
-                                            val totalMB = total / (1024.0 * 1024.0)
-                                            val percent = (current * 100 / total).toInt().coerceIn(0, 99)
-                                            String.format(Locale.US, "%.1f / %.1f MB (%d%%)", currentMB, totalMB, percent)
-                                        } else {
-                                            String.format(Locale.US, "%.1f MB", currentMB)
-                                        }
-                                        _epgStatus.value = progressStr
-                                    }
-                                }
+                for (source in enabledSources) {
+                    try {
+                        val request = Request.Builder()
+                            .url(source.url)
+                            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            if (response.isSuccessful) {
+                                response.body?.let { body ->
+                                    val contentLength = body.contentLength()
+                                    val rawStream = body.byteStream()
 
-                                val bis = BufferedInputStream(countingStream)
-                                bis.mark(10)
-                                val b1 = bis.read()
-                                val b2 = bis.read()
-                                bis.reset()
-                                
-                                val isGzipped = (b1 == 0x1f && b2 == 0x8b)
+                                    var bytesReadTotal = 0L
+                                    val countingStream = object : java.io.FilterInputStream(rawStream) {
+                                        override fun read(): Int {
+                                            val b = super.read()
+                                            if (b != -1) {
+                                                bytesReadTotal++
+                                                updateProgress(bytesReadTotal, contentLength)
+                                            }
+                                            return b
+                                        }
+                                        override fun read(b: ByteArray, off: Int, len: Int): Int {
+                                            val r = super.read(b, off, len)
+                                            if (r > 0) {
+                                                bytesReadTotal += r
+                                                updateProgress(bytesReadTotal, contentLength)
+                                            }
+                                            return r
+                                        }
+                                        private fun updateProgress(current: Long, total: Long) {
+                                            val currentMB = current / (1024.0 * 1024.0)
+                                            val progressStr = if (total > 0) {
+                                                val totalMB = total / (1024.0 * 1024.0)
+                                                val percent = (current * 100 / total).toInt().coerceIn(0, 100)
+                                                String.format(Locale.US, "%.1f / %.1f MB (%d%%)", currentMB, totalMB, percent)
+                                            } else {
+                                                String.format(Locale.US, "%.1f MB", currentMB)
+                                            }
+                                            _epgStatus.value = progressStr
+                                        }
+                                    }
 
-                                XmlTvParser.parseStreaming(bis, isGzipped, cutoffTime) { batch ->
-                                    try {
-                                        epgDao.insertAll(batch)
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
+                                    val bis = BufferedInputStream(countingStream)
+                                    bis.mark(10)
+                                    val b1 = bis.read()
+                                    val b2 = bis.read()
+                                    bis.reset()
+                                    
+                                    val isGzipped = (b1 == 0x1f && b2 == 0x8b)
+
+                                    var parsedCount = 0
+                                    XmlTvParser.parseStreaming(
+                                        bis, isGzipped, cutoffTime, futureLimit,
+                                        onChannelNamesParsed = { namesMap ->
+                                            xmlTvChannelNamesMap.putAll(namesMap)
+                                        }
+                                    ) { batch ->
+                                        try {
+                                            epgDao.insertAll(batch)
+                                            parsedCount += batch.size
+                                            _epgStatus.value = "PARSING: $parsedCount"
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
                                     }
                                 }
                             }
                         }
+                    } catch (e: Exception) { 
+                        e.printStackTrace()
                     }
-                } catch (e: Exception) { 
-                    e.printStackTrace()
                 }
-            }
 
-            val now = System.currentTimeMillis()
-            runCatching { epgDao.pruneWindow(now - 6L * 60L * 60L * 1000L, now + 7L * 24L * 60L * 60L * 1000L) }
-            // Avoid a full SQLite compaction after every import: it blocks completion on large EPGs.
-            // Window pruning keeps the working set bounded; storage compaction can be done separately.
-            val updatedSources = _epgSources.value.map { source ->
-                if (enabledSources.any { it.id == source.id }) source.copy(lastUpdatedTime = now) else source
-            }
-            _epgSources.value = updatedSources
-            saveEpgSourcesToPrefs()
+                val now = System.currentTimeMillis()
+                runCatching { epgDao.pruneWindow(now - 30L * 24L * 60L * 60L * 1000L, now + 30L * 24L * 60L * 60L * 1000L) }
+                val updatedSources = _epgSources.value.map { source ->
+                    if (enabledSources.any { it.id == source.id }) source.copy(lastUpdatedTime = now) else source
+                }
+                _epgSources.value = updatedSources
+                saveEpgSourcesToPrefs()
 
-            val validPrograms = epgDao.getAllValidPrograms(now)
-            processLoadedEpg(validPrograms)
-            updateEpgDbSize()
+                val validPrograms = epgDao.getAllValidPrograms(now)
+                processLoadedEpg(validPrograms)
+                updateEpgDbSize()
 
-            withContext(Dispatchers.Main) {
-                _isEpgLoading.value = false
-                _epgStatus.value = if (validPrograms.isNotEmpty()) "LOADED:${validPrograms.size}:100%" else "EPG_UPDATED"
+                withContext(Dispatchers.Main) {
+                    _epgStatus.value = if (validPrograms.isNotEmpty()) "LOADED:${validPrograms.size}:100%" else "EPG_UPDATED"
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                withContext(Dispatchers.Main) {
+                    _isEpgLoading.value = false
+                }
             }
         }
     }
@@ -881,8 +936,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Export only shareable media-list data; never include channel-lock passwords in Wi-Fi transfers. */
     fun exportWifiTransferJson(): String {
-        // SAF/Downloads content:// URIs are valid only on the device that granted access.
-        // Embed local playlist files in the transfer so the receiving TV never opens the sender's URI.
         val resolver = getApplication<Application>().contentResolver
         val portablePlaylists = _playlists.value.filterNot { isKitTvPlaylist(it.name, it.url, it.id) }.map { playlist ->
             val localBytes = runCatching {
@@ -902,7 +955,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "playlists" to Json.encodeToString(portablePlaylists),
             "epgSources" to Json.encodeToString(_epgSources.value),
             "favorites" to Json.encodeToString(_favorites.value),
-            "pinned" to Json.encodeToString(_pinnedUrls.value)
+            "pinned" to Json.encodeToString(_pinnedUrls.value),
+            "locked" to Json.encodeToString(_lockedChannels.value),
+            "lockedFolders" to Json.encodeToString(lockedFolders.value),
+            "hiddenChannels" to Json.encodeToString(_hiddenChannels.value),
+            "hiddenCategories" to Json.encodeToString(_hiddenCategories.value),
+            "customCategoryOrder" to Json.encodeToString(customCategoryOrder.value),
+            "customChannelOrder" to Json.encodeToString(customChannelOrder.value)
         )
         return Json.encodeToString(map)
     }
@@ -913,7 +972,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "epgSources" to Json.encodeToString(_epgSources.value),
             "favorites" to Json.encodeToString(_favorites.value),
             "pinned" to Json.encodeToString(_pinnedUrls.value),
-            "locked" to Json.encodeToString(_lockedChannels.value)
+            "locked" to Json.encodeToString(_lockedChannels.value),
+            "lockedFolders" to Json.encodeToString(lockedFolders.value),
+            "hiddenChannels" to Json.encodeToString(_hiddenChannels.value),
+            "hiddenCategories" to Json.encodeToString(_hiddenCategories.value),
+            "customCategoryOrder" to Json.encodeToString(customCategoryOrder.value),
+            "customChannelOrder" to Json.encodeToString(customChannelOrder.value)
         )
         return Json.encodeToString(map)
     }
@@ -923,7 +987,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val map: Map<String, String> = Json.decodeFromString(jsonString)
             map["playlists"]?.let {
                 val imported: List<Playlist> = Json.decodeFromString<List<Playlist>>(it).filterNot { p -> isKitTvPlaylist(p.name, p.url, p.id) }
-                // Convert transferred inline file data into a private local file on this device.
                 val playlistDir = File(getApplication<Application>().filesDir, "imported_playlists").apply { mkdirs() }
                 _playlists.value = imported.map { playlist ->
                     val prefix = "data:text/plain;base64,"
@@ -941,7 +1004,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             map["favorites"]?.let { _favorites.value = Json.decodeFromString(it); prefs.edit().putStringSet("favorites", _favorites.value).apply() }
             map["pinned"]?.let { _pinnedUrls.value = Json.decodeFromString(it); prefs.edit().putStringSet("pinned_channels", _pinnedUrls.value).apply() }
             map["locked"]?.let { _lockedChannels.value = Json.decodeFromString(it); saveLockedPasswordsToPrefs(_lockedChannels.value) }
-            // Make transferred playlists usable immediately rather than waiting for the next app launch.
+            map["lockedFolders"]?.let { lockedFolders.value = Json.decodeFromString<Map<String, String>>(it); saveLockedFoldersToPrefs(lockedFolders.value) }
+            map["hiddenChannels"]?.let { _hiddenChannels.value = Json.decodeFromString<Set<String>>(it); prefs.edit().putStringSet("hidden_channels", _hiddenChannels.value).apply() }
+            map["hiddenCategories"]?.let { _hiddenCategories.value = Json.decodeFromString<Set<String>>(it); prefs.edit().putStringSet("hidden_categories", _hiddenCategories.value).apply() }
+            map["customCategoryOrder"]?.let { customCategoryOrder.value = Json.decodeFromString<List<String>>(it); saveCustomCategoryOrderToPrefs(customCategoryOrder.value) }
+            map["customChannelOrder"]?.let { customChannelOrder.value = Json.decodeFromString<List<String>>(it); saveCustomChannelOrderToPrefs(customChannelOrder.value) }
             _playlists.value.firstOrNull { it.isSelected && it.enabled }?.let { selected -> loadPlaylist(selected.url) }
             refreshAllEpg(force = true)
             true
@@ -966,6 +1033,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "show_source" -> showSource.value = value
                     "show_resolution" -> showResolution.value = value
                     "show_fps" -> showFps.value = value
+                    "show_codecs" -> showCodecs.value = value
+                    "show_bitrate" -> showBitrate.value = value
+                    "show_channel_numbers" -> showChannelNumbers.value = value
+                    "volume_gesture_enabled" -> volumeGestureEnabled.value = value
+                    "expressive_glow" -> expressiveGlow.value = value
+                    "ambient_canvas" -> ambientCanvas.value = value
+                    "icon_rotation_enabled" -> iconRotationEnabled.value = value
                 }
             }
             is Float -> {
@@ -974,6 +1048,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "font_size" -> fontSize.value = value
                     "playback_speed" -> playbackSpeed.value = value
                     "audio_volume_boost" -> audioVolumeBoost.value = value
+                    "wave_amplitude" -> waveAmplitude.value = value
+                    "wave_speed" -> waveSpeed.value = value
+                    "spring_scale" -> springScale.value = value
+                }
+            }
+            is Int -> {
+                editor.putInt(key, value)
+                when(key) {
+                    "auto_hide_timeout" -> autoHideTimeout.value = value
+                    "card_corner_radius" -> cardCornerRadius.value = value
                 }
             }
             is String -> {
@@ -989,13 +1073,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "buffering_level" -> bufferingLevel.value = value
                     "group_sort_order" -> groupSortOrder.value = value
                     "resolution_format" -> resolutionFormat.value = value
+                    "badge_shape" -> badgeShape.value = value
+                    "badge_color" -> badgeColor.value = value
+                    "panel_color" -> panelColor.value = value
                     "ui_style" -> uiStyle.value = value
                     "category_display_mode" -> categoryDisplayMode.value = value
                     "catchup_mode" -> catchupMode.value = value
                     "aspect_ratio_mode" -> aspectRatioMode.value = value
+                    "hardware_decoder" -> hardwareDecoder.value = value
+                    "epg_update_interval" -> epgUpdateInterval.value = value
+                    "epg_progress_style" -> epgProgressStyle.value = value
+                    "player_glass_tint" -> playerGlassTint.value = value
+                    "card_badge_style" -> cardBadgeStyle.value = value
                 }
             }
-            is Int -> { editor.putInt(key, value); if (key == "auto_hide_timeout") autoHideTimeout.value = value }
+            is Int -> {
+                editor.putInt(key, value)
+                when(key) {
+                    "auto_hide_timeout" -> autoHideTimeout.value = value
+                    "card_corner_radius" -> cardCornerRadius.value = value
+                }
+            }
         }
         editor.apply()
     }
@@ -1063,28 +1161,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun checkAutoUpdates() {
-        val now = System.currentTimeMillis()
         _playlists.value.filter { it.isSelected && it.enabled }.forEach { playlist ->
-            val needUpdate = when (playlist.autoUpdateInterval) {
-                "15 min" -> now - playlist.lastUpdatedTime >= 15 * 60 * 1000L
-                "30 min" -> now - playlist.lastUpdatedTime >= 30 * 60 * 1000L
-                "1 hour" -> now - playlist.lastUpdatedTime >= 60 * 60 * 1000L
-                "1 day" -> now - playlist.lastUpdatedTime >= 24 * 60 * 60 * 1000L
-                else -> false
-            }
-            if (needUpdate) {
+            if (shouldUpdatePlaylist(playlist, isAppLaunch = false)) {
                 loadPlaylist(playlist.url)
             }
         }
 
         val epgNeedsUpdate = _epgSources.value.filter { it.enabled }.any { source ->
-            when (source.autoUpdateInterval) {
-                "15 min" -> now - source.lastUpdatedTime >= 15 * 60 * 1000L
-                "30 min" -> now - source.lastUpdatedTime >= 30 * 60 * 1000L
-                "1 hour" -> now - source.lastUpdatedTime >= 60 * 60 * 1000L
-                "1 day" -> now - source.lastUpdatedTime >= 24 * 60 * 60 * 1000L
-                else -> false
-            }
+            shouldUpdateEpgSource(source, isAppLaunch = false)
         }
         if (epgNeedsUpdate) {
             refreshAllEpg()
@@ -1133,6 +1217,68 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadPlaylistsFromPrefs(): List<Playlist> = try { Json.decodeFromString(prefs.getString("playlists_json", "[]")!!) } catch (e: Exception) { emptyList() }
     private fun saveEpgSourcesToPrefs() = prefs.edit().putString("epg_sources_json", Json.encodeToString(_epgSources.value)).apply()
     private fun loadEpgSourcesFromPrefs(): List<EpgSource> = try { Json.decodeFromString(prefs.getString("epg_sources_json", "[]")!!) } catch (e: Exception) { emptyList() }
+
+    private fun loadLockedFoldersFromPrefs(): Map<String, String> {
+        val json = prefs.getString("locked_folders_json", null) ?: return emptyMap()
+        return try { Json.decodeFromString(json) } catch (e: Exception) { emptyMap() }
+    }
+
+    private fun saveLockedFoldersToPrefs(map: Map<String, String>) {
+        prefs.edit().putString("locked_folders_json", Json.encodeToString(map)).apply()
+    }
+
+    private fun loadCustomCategoryOrderFromPrefs(): List<String> {
+        val json = prefs.getString("custom_category_order_json", null) ?: return emptyList()
+        return try { Json.decodeFromString(json) } catch (e: Exception) { emptyList() }
+    }
+
+    private fun saveCustomCategoryOrderToPrefs(list: List<String>) {
+        prefs.edit().putString("custom_category_order_json", Json.encodeToString(list)).apply()
+    }
+
+    private fun loadCustomChannelOrderFromPrefs(): List<String> {
+        val json = prefs.getString("custom_channel_order_json", null) ?: return emptyList()
+        return try { Json.decodeFromString(json) } catch (e: Exception) { emptyList() }
+    }
+
+    private fun saveCustomChannelOrderToPrefs(list: List<String>) {
+        prefs.edit().putString("custom_channel_order_json", Json.encodeToString(list)).apply()
+    }
+
+    fun lockFolder(folder: String, pass: String) {
+        val map = lockedFolders.value.toMutableMap()
+        map[folder] = pass
+        lockedFolders.value = map
+        saveLockedFoldersToPrefs(map)
+    }
+
+    fun unlockFolder(folder: String) {
+        val map = lockedFolders.value.toMutableMap()
+        map.remove(folder)
+        lockedFolders.value = map
+        saveLockedFoldersToPrefs(map)
+    }
+
+    fun isFolderLocked(folder: String): Boolean = lockedFolders.value.containsKey(folder)
+    fun getFolderPassword(folder: String): String? = lockedFolders.value[folder]
+
+    fun moveCategory(folder: String, targetPosition: Int) {
+        val current = categories.value.filterNot { it in listOf("All", "Favorites", "Recent") }.toMutableList()
+        current.remove(folder)
+        val clamped = targetPosition.coerceIn(0, current.size)
+        current.add(clamped, folder)
+        customCategoryOrder.value = current
+        saveCustomCategoryOrderToPrefs(current)
+    }
+
+    fun moveChannel(channelUrl: String, targetPosition: Int) {
+        val currentChannels = filteredChannels.value.map { it.url }.toMutableList()
+        currentChannels.remove(channelUrl)
+        val clamped = targetPosition.coerceIn(0, currentChannels.size)
+        currentChannels.add(clamped, channelUrl)
+        customChannelOrder.value = currentChannels
+        saveCustomChannelOrderToPrefs(currentChannels)
+    }
 
     fun selectCategory(category: String) { _selectedCategory.value = category }
     fun updateSearchQuery(query: String) { _searchQuery.value = query }

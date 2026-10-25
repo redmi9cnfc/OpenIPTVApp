@@ -33,6 +33,8 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Locale
 
+import android.content.pm.ActivityInfo
+
 class MainActivity : ComponentActivity() {
     private var isPlayingVideo = false
     private var fullScreenEnabledForWindow = true
@@ -87,8 +89,14 @@ class MainActivity : ComponentActivity() {
         setContent {
             val viewModel: MainViewModel = viewModel()
             val fullScreenEnabled by viewModel.fullScreenByDefault.collectAsState()
+            val forceLandscape by viewModel.forceLandscape.collectAsState()
             SideEffect {
                 fullScreenEnabledForWindow = fullScreenEnabled
+                if (forceLandscape) {
+                    this@MainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                } else if (this@MainActivity.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) {
+                    this@MainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
                 applyAppSystemBars()
             }
             val language by viewModel.language.collectAsState()
@@ -97,11 +105,25 @@ class MainActivity : ComponentActivity() {
             val backBehavior by viewModel.backBehavior.collectAsState()
             val uiStyle by viewModel.uiStyle.collectAsState()
             val customTheme by viewModel.parsedCustomTheme.collectAsState()
+            val panelColorName by viewModel.panelColor.collectAsState()
             
             val accentColor = when(accentColorName) {
                 "Green" -> Color(0xFF4CAF50)
                 "Red" -> Color(0xFFF44336)
+                "Purple" -> Color(0xFF9C27B0)
+                "Orange" -> Color(0xFFFF9800)
+                "Pink" -> Color(0xFFE91E63)
+                "Cyan" -> Color(0xFF00BCD4)
                 else -> Color(0xFF2196F3)
+            }
+
+            val (customSurface, customSurfaceVariant) = when(panelColorName) {
+                "Dark Blue" -> Color(0xFF1F293D) to Color(0xFF2B3852)
+                "Graphite" -> Color(0xFF282C34) to Color(0xFF323842)
+                "Deep Purple" -> Color(0xFF271F33) to Color(0xFF352B45)
+                "Midnight" -> Color(0xFF152238) to Color(0xFF1E3150)
+                "Emerald" -> Color(0xFF122C1E) to Color(0xFF1B3D2B)
+                else -> Color(0xFF242424) to Color(0xFF2D2D2D)
             }
 
             val colorScheme = if (customTheme.enabled) {
@@ -109,6 +131,8 @@ class MainActivity : ComponentActivity() {
                     primary = parseHexColor(customTheme.primaryColorHex, accentColor),
                     background = parseHexColor(customTheme.backgroundColorHex, Color(0xFF121212)),
                     surface = parseHexColor(customTheme.surfaceColorHex, Color(0xFF1E1E1E)),
+                    surfaceContainerHigh = parseHexColor(customTheme.surfaceColorHex, customSurface),
+                    surfaceVariant = customSurfaceVariant,
                     onBackground = parseHexColor(customTheme.textColorHex, Color.White),
                     onSurface = parseHexColor(customTheme.textColorHex, Color.White)
                 )
@@ -123,20 +147,25 @@ class MainActivity : ComponentActivity() {
                         primary = accentColor,
                         background = Color.Black,
                         surface = Color.Black,
-                        surfaceVariant = Color.Black
+                        surfaceVariant = Color.Black,
+                        surfaceContainerHigh = Color(0xFF121212)
                     )
                     "Halloween" -> darkColorScheme(
                         primary = Color(0xFFFF7518), secondary = Color(0xFF9B4DCA),
-                        background = Color(0xFF160D20), surface = Color(0xFF24152E)
+                        background = Color(0xFF160D20), surface = Color(0xFF24152E),
+                        surfaceContainerHigh = Color(0xFF2F1C3C), surfaceVariant = Color(0xFF3B234A)
                     )
                     "Winter" -> darkColorScheme(
                         primary = Color(0xFF8ED8FF), secondary = Color(0xFFB8E7FF),
-                        background = Color(0xFF071827), surface = Color(0xFF102B40)
+                        background = Color(0xFF071827), surface = Color(0xFF102B40),
+                        surfaceContainerHigh = Color(0xFF153752), surfaceVariant = Color(0xFF1D476B)
                     )
                     else -> darkColorScheme(
                         primary = accentColor,
                         background = Color(0xFF121212),
-                        surface = Color(0xFF1E1E1E)
+                        surface = Color(0xFF1E1E1E),
+                        surfaceContainerHigh = customSurface,
+                        surfaceVariant = customSurfaceVariant
                     )
                 }
             }

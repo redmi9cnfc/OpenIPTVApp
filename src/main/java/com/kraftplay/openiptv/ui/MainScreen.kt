@@ -16,8 +16,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -46,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -71,7 +74,7 @@ fun getCategoryDisplayName(category: String): String {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     viewModel: MainViewModel,
@@ -103,6 +106,13 @@ fun MainScreen(
     val channelViewingTimes by viewModel.channelViewingTimes.collectAsState()
     val uiStyle by viewModel.uiStyle.collectAsState()
     val catchupMode by viewModel.catchupMode.collectAsState()
+    val showChannelNumbers by viewModel.showChannelNumbers.collectAsState()
+    val cardCornerRadius by viewModel.cardCornerRadius.collectAsState()
+    val springScale by viewModel.springScale.collectAsState()
+    val badgeShape by viewModel.badgeShape.collectAsState()
+    val badgeColor by viewModel.badgeColor.collectAsState()
+    val expressiveGlow by viewModel.expressiveGlow.collectAsState()
+    val ambientCanvas by viewModel.ambientCanvas.collectAsState()
     
     var currentTime by remember { mutableStateOf(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())) }
     var isSearchExpanded by remember { mutableStateOf(false) }
@@ -132,6 +142,13 @@ fun MainScreen(
     var showEpgSchedule by remember { mutableStateOf<IptvChannel?>(null) }
     var showEpgSearchDialog by remember { mutableStateOf(false) }
 
+    var showFolderMenu by remember { mutableStateOf<String?>(null) }
+    var showFolderPasswordPrompt by remember { mutableStateOf<String?>(null) }
+    var folderToUnlock by remember { mutableStateOf<String?>(null) }
+    var showMoveFolderDialog by remember { mutableStateOf<String?>(null) }
+    var showFolderLockDialog by remember { mutableStateOf<String?>(null) }
+    var showMoveChannelDialog by remember { mutableStateOf<IptvChannel?>(null) }
+
     LaunchedEffect(showClock) {
         while (showClock) {
             currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
@@ -149,47 +166,56 @@ fun MainScreen(
                             Text("OpenIPTV", fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                             val currentPlaylist = playlists.find { it.isSelected }
                             if (currentPlaylist != null) {
-                                val isKitTv = com.kraftplay.openiptv.model.isKitTvPlaylist(currentPlaylist.name, currentPlaylist.url, currentPlaylist.id)
                                 val shouldShowUrl = !hideUrl && currentPlaylist.url.isNotBlank() && !currentPlaylist.url.startsWith("data:text/plain;base64,", ignoreCase = true)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            currentPlaylist.name,
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            fontWeight = FontWeight.SemiBold,
-                                            maxLines = 1
-                                        )
-                                        if (shouldShowUrl) {
-                                            Text(
-                                                currentPlaylist.url,
-                                                fontSize = 9.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1
+                                Box {
+                                    Surface(
+                                        onClick = { showPlaylistMenu = true },
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                                Text(
+                                                    currentPlaylist.name,
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1
+                                                )
+                                                if (shouldShowUrl) {
+                                                    Text(
+                                                        currentPlaylist.url,
+                                                        fontSize = 9.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1
+                                                    )
+                                                }
+                                            }
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = "Select playlist",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp)
                                             )
                                         }
                                     }
-                                    Box {
-                                        IconButton(
-                                            onClick = { showPlaylistMenu = true },
-                                            modifier = Modifier.size(28.dp)
-                                        ) { Icon(Icons.Default.Check, contentDescription = "Select playlist", modifier = Modifier.size(18.dp)) }
-                                        DropdownMenu(
-                                            expanded = showPlaylistMenu,
-                                            onDismissRequest = { showPlaylistMenu = false }
-                                        ) {
-                                            playlists.filter { it.enabled }.forEach { playlist ->
-                                                DropdownMenuItem(
-                                                    text = { Text((if (playlist.isSelected) "✓ " else "") + playlist.name, maxLines = 1) },
-                                                    onClick = {
-                                                        showPlaylistMenu = false
-                                                        viewModel.selectPlaylist(playlist.id)
-                                                    }
-                                                )
-                                            }
+                                    DropdownMenu(
+                                        expanded = showPlaylistMenu,
+                                        onDismissRequest = { showPlaylistMenu = false }
+                                    ) {
+                                        playlists.filter { it.enabled }.forEach { playlist ->
+                                            DropdownMenuItem(
+                                                text = { Text((if (playlist.isSelected) "✓ " else "") + playlist.name, maxLines = 1) },
+                                                onClick = {
+                                                    showPlaylistMenu = false
+                                                    viewModel.selectPlaylist(playlist.id)
+                                                }
+                                            )
                                         }
                                     }
                                 }
@@ -230,7 +256,9 @@ fun MainScreen(
             )
         }
     ) { paddingValues ->
-        Column(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            ExpressiveAmbientCanvas(enabled = ambientCanvas)
+            Column(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
             if (!playlistError.isNullOrBlank()) {
                 Text(
                     text = playlistError.orEmpty(),
@@ -299,9 +327,25 @@ fun MainScreen(
                     ) {
                         items(visibleCategories) { category ->
                             var isFocused by remember { mutableStateOf(false) }
+                            var isOkKeyDown by remember { mutableStateOf(false) }
+                            var isLongPressHandled by remember { mutableStateOf(false) }
+                            var longPressJob by remember { mutableStateOf<Job?>(null) }
+                            val chipScope = rememberCoroutineScope()
+                            val isFolderLocked = viewModel.isFolderLocked(category)
+
+                            val handleChipClick = {
+                                if (!isLongPressHandled) {
+                                    if (isFolderLocked) {
+                                        showFolderPasswordPrompt = category
+                                    } else {
+                                        viewModel.selectCategory(category)
+                                    }
+                                }
+                            }
+
                             FilterChip(
                                 selected = category == selectedCategory,
-                                onClick = { viewModel.selectCategory(category) },
+                                onClick = handleChipClick,
                                 label = { Text(getCategoryDisplayName(category), fontSize = (fontSize - 2).sp) },
                                 leadingIcon = { 
                                     when(category) {
@@ -309,6 +353,9 @@ fun MainScreen(
                                         "Recent" -> Icon(Icons.Default.History, null, modifier = Modifier.size(16.dp))
                                     }
                                 },
+                                trailingIcon = if (isFolderLocked) {
+                                    { Icon(Icons.Default.Lock, contentDescription = "Locked", modifier = Modifier.size(14.dp)) }
+                                } else null,
                                 modifier = Modifier
                                     .onFocusChanged { isFocused = it.isFocused }
                                     .scale(if (isFocused) 1.1f else 1f)
@@ -316,6 +363,47 @@ fun MainScreen(
                                         width = if (isFocused) 2.dp else 0.dp,
                                         color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
                                         shape = MaterialTheme.shapes.small
+                                    )
+                                    .onPreviewKeyEvent { event ->
+                                        val keyCode = event.nativeKeyEvent.keyCode
+                                        val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                            keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                                        if (!isConfirm) return@onPreviewKeyEvent false
+                                        when (event.nativeKeyEvent.action) {
+                                            KeyEvent.ACTION_DOWN -> {
+                                                if (!isOkKeyDown) {
+                                                    isOkKeyDown = true
+                                                    isLongPressHandled = false
+                                                    longPressJob?.cancel()
+                                                    longPressJob = chipScope.launch {
+                                                        delay(550)
+                                                        if (isOkKeyDown && !isLongPressHandled) {
+                                                            isLongPressHandled = true
+                                                            if (category != "All" && category != "Favorites" && category != "Recent") {
+                                                                showFolderMenu = category
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                true
+                                            }
+                                            KeyEvent.ACTION_UP -> {
+                                                isOkKeyDown = false
+                                                longPressJob?.cancel()
+                                                longPressJob = null
+                                                handleChipClick()
+                                                true
+                                            }
+                                            else -> true
+                                        }
+                                    }
+                                    .combinedClickable(
+                                        onClick = handleChipClick,
+                                        onLongClick = {
+                                            if (category != "All" && category != "Favorites" && category != "Recent") {
+                                                showFolderMenu = category
+                                            }
+                                        }
                                     ),
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
@@ -336,7 +424,7 @@ fun MainScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(channels) { channel ->
+                            itemsIndexed(channels) { index, channel ->
                                 ChannelCard(
                                     channel = channel,
                                     currentProgram = currentPrograms[channel.url],
@@ -345,6 +433,10 @@ fun MainScreen(
                                     fontSize = fontSize,
                                     listSize = listSize,
                                     uiStyle = uiStyle,
+                                    channelNumber = if (showChannelNumbers) index + 1 else null,
+                                    cornerRadius = cardCornerRadius,
+                                    scaleIntensity = springScale,
+                                    glowEnabled = expressiveGlow,
                                     onClick = { 
                                         if (channel.isLocked) {
                                             showPasswordDialog = Triple(channel, "play", "")
@@ -371,11 +463,24 @@ fun MainScreen(
                         ) {
                             items(visibleCategories) { category ->
                                 val count = categoryCounts[category] ?: 0
+                                val isFolderLocked = viewModel.isFolderLocked(category)
                                 CategoryFolderCard(
                                     title = category,
                                     count = count,
                                     uiStyle = uiStyle,
-                                    onClick = { viewModel.selectFolder(category) }
+                                    isLocked = isFolderLocked,
+                                    onClick = {
+                                        if (isFolderLocked) {
+                                            showFolderPasswordPrompt = category
+                                        } else {
+                                            viewModel.selectFolder(category)
+                                        }
+                                    },
+                                    onLongClick = {
+                                        if (category != "All" && category != "Favorites" && category != "Recent") {
+                                            showFolderMenu = category
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -402,7 +507,7 @@ fun MainScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(channels) { channel ->
+                            itemsIndexed(channels) { index, channel ->
                                 ChannelCard(
                                     channel = channel,
                                     currentProgram = currentPrograms[channel.url],
@@ -411,6 +516,10 @@ fun MainScreen(
                                     fontSize = fontSize,
                                     listSize = listSize,
                                     uiStyle = uiStyle,
+                                    channelNumber = if (showChannelNumbers) index + 1 else null,
+                                    cornerRadius = cardCornerRadius,
+                                    scaleIntensity = springScale,
+                                    glowEnabled = expressiveGlow,
                                     onClick = { 
                                         if (channel.isLocked) {
                                             showPasswordDialog = Triple(channel, "play", "")
@@ -428,6 +537,7 @@ fun MainScreen(
             }
         }
     }
+}
 
     if (showAddPlaylistDialog) {
         AddDialog(
@@ -516,7 +626,6 @@ fun MainScreen(
         val channel = showChannelMenu!!
         var ignoreLongPressRelease by remember(channel.url) { mutableStateOf(true) }
         LaunchedEffect(channel.url) {
-            // If the key-up was delivered to the old window, do not block the next user click.
             delay(700)
             ignoreLongPressRelease = false
         }
@@ -525,18 +634,16 @@ fun MainScreen(
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 tonalElevation = 8.dp,
                 modifier = Modifier
-                    .width(320.dp)
+                    .width(340.dp)
                     .padding(16.dp)
-                    // A long OK opens this dialog while the physical key is still held.
-                    // Consume that key's release so it cannot activate the focused first item.
                     .onPreviewKeyEvent { event ->
                         val keyCode = event.nativeKeyEvent.keyCode
                         val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                            keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                                keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
                         if (isConfirm && event.nativeKeyEvent.action == KeyEvent.ACTION_UP && ignoreLongPressRelease) {
                             ignoreLongPressRelease = false
                             true
@@ -551,20 +658,55 @@ fun MainScreen(
                     runCatching { menuFocusRequester.requestFocus() }
                 }
 
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(channel.name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(8.dp), maxLines = 1)
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                    ) {
+                        IconBadge(
+                            icon = Icons.Default.Tv,
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            size = 44.dp,
+                            shapeName = badgeShape,
+                            badgeColorName = badgeColor
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = channel.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (!channel.category.isNullOrBlank()) {
+                                Text(
+                                    text = getCategoryDisplayName(channel.category),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     
                     TvMenuItem(
                         modifier = Modifier.focusRequester(menuFocusRequester),
                         onClick = { viewModel.toggleFavorite(channel.url); showChannelMenu = null },
                         icon = if (channel.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        text = if (channel.isFavorite) stringResource(R.string.remove_from_favorites) else stringResource(R.string.add_to_favorites)
+                        text = if (channel.isFavorite) stringResource(R.string.remove_from_favorites) else stringResource(R.string.add_to_favorites),
+                        shapeName = badgeShape
                     )
                     TvMenuItem(
                         onClick = { viewModel.togglePinChannel(channel.url); showChannelMenu = null },
                         icon = Icons.Default.PushPin,
-                        text = if (channel.isPinned) stringResource(R.string.unpin_channel) else stringResource(R.string.pin_channel)
+                        text = if (channel.isPinned) stringResource(R.string.unpin_channel) else stringResource(R.string.pin_channel),
+                        shapeName = badgeShape
                     )
                     TvMenuItem(
                         onClick = { 
@@ -576,25 +718,35 @@ fun MainScreen(
                             showChannelMenu = null 
                         },
                         icon = if (channel.isLocked) Icons.Default.LockOpen else Icons.Default.Lock,
-                        text = if (channel.isLocked) stringResource(R.string.unlock_channel) else stringResource(R.string.lock_channel)
+                        text = if (channel.isLocked) stringResource(R.string.unlock_channel) else stringResource(R.string.lock_channel),
+                        shapeName = badgeShape
                     )
                     if (channel.isLocked) {
                         TvMenuItem(
                             onClick = { showPasswordDialog = Triple(channel, "change_step1", ""); showChannelMenu = null },
                             icon = Icons.Default.Password,
-                            text = stringResource(R.string.change_password)
+                            text = stringResource(R.string.change_password),
+                            shapeName = badgeShape
                         )
                     }
                     TvMenuItem(
+                        onClick = { showMoveChannelDialog = channel; showChannelMenu = null },
+                        icon = Icons.Default.SwapVert,
+                        text = tr("Передвинуть канал"),
+                        shapeName = badgeShape
+                    )
+                    TvMenuItem(
                         onClick = { showEpgSchedule = channel; showChannelMenu = null },
                         icon = Icons.Default.List,
-                        text = "Full Schedule"
+                        text = "Full Schedule",
+                        shapeName = badgeShape
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(4.dp))
                     TvMenuItem(
                         onClick = { showChannelMenu = null },
                         icon = Icons.Default.Close,
-                        text = stringResource(R.string.close)
+                        text = stringResource(R.string.close),
+                        shapeName = badgeShape
                     )
                 }
             }
@@ -747,11 +899,332 @@ fun MainScreen(
             confirmButton = { TextButton(onClick = { showEpgSchedule = null }) { Text(stringResource(R.string.close)) } }
         )
     }
+
+    if (showMoveChannelDialog != null) {
+        val ch = showMoveChannelDialog!!
+        val currentIdx = channels.indexOfFirst { it.url == ch.url }
+        var targetPosText by remember(ch.url) { mutableStateOf((currentIdx + 1).coerceAtLeast(1).toString()) }
+
+        AlertDialog(
+            onDismissRequest = { showMoveChannelDialog = null },
+            title = { Text(tr("Передвинуть канал: {0}", ch.name)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(tr("Текущая позиция: #{0}", currentIdx + 1), style = MaterialTheme.typography.bodyMedium)
+                    OutlinedTextField(
+                        value = targetPosText,
+                        onValueChange = { targetPosText = it },
+                        label = { Text(tr("Новая позиция (номер в списке)")) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                val newPos = (currentIdx - 1).coerceAtLeast(0)
+                                viewModel.moveChannel(ch.url, newPos)
+                                showMoveChannelDialog = null
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text(tr("Вверх ↑")) }
+                        OutlinedButton(
+                            onClick = {
+                                val newPos = currentIdx + 1
+                                viewModel.moveChannel(ch.url, newPos)
+                                showMoveChannelDialog = null
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text(tr("Вниз ↓")) }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val newPos = (targetPosText.toIntOrNull() ?: 1) - 1
+                    viewModel.moveChannel(ch.url, newPos)
+                    showMoveChannelDialog = null
+                }) { Text(tr("Передвинуть")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMoveChannelDialog = null }) { Text(tr("Отмена")) }
+            }
+        )
+    }
+
+    if (showFolderMenu != null) {
+        val folderName = showFolderMenu!!
+        val isLocked = viewModel.isFolderLocked(folderName)
+        var ignoreLongPressRelease by remember(folderName) { mutableStateOf(true) }
+        LaunchedEffect(folderName) {
+            delay(700)
+            ignoreLongPressRelease = false
+        }
+
+        Dialog(
+            onDismissRequest = { showFolderMenu = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = 8.dp,
+                modifier = Modifier
+                    .width(340.dp)
+                    .padding(16.dp)
+                    .onPreviewKeyEvent { event ->
+                        val keyCode = event.nativeKeyEvent.keyCode
+                        val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                        if (isConfirm && event.nativeKeyEvent.action == KeyEvent.ACTION_UP && ignoreLongPressRelease) {
+                            ignoreLongPressRelease = false
+                            true
+                        } else {
+                            false
+                        }
+                    }
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                    ) {
+                        IconBadge(
+                            icon = Icons.Default.Folder,
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            size = 44.dp,
+                            shapeName = badgeShape,
+                            badgeColorName = badgeColor
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = getCategoryDisplayName(folderName),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (isLocked) tr("Папка заблокирована") else tr("Категория каналов"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    TvMenuItem(
+                        onClick = {
+                            showMoveFolderDialog = folderName
+                            showFolderMenu = null
+                        },
+                        icon = Icons.Default.SwapVert,
+                        text = tr("Передвинуть категорию"),
+                        shapeName = badgeShape
+                    )
+
+                    TvMenuItem(
+                        onClick = {
+                            if (isLocked) {
+                                folderToUnlock = folderName
+                                showFolderPasswordPrompt = folderName
+                            } else {
+                                showFolderLockDialog = folderName
+                            }
+                            showFolderMenu = null
+                        },
+                        icon = if (isLocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                        text = if (isLocked) tr("Снять пароль с папки") else tr("Запаролить папку"),
+                        shapeName = badgeShape
+                    )
+
+                    TvMenuItem(
+                        onClick = {
+                            viewModel.toggleHideCategory(folderName)
+                            showFolderMenu = null
+                        },
+                        icon = Icons.Default.VisibilityOff,
+                        text = tr("Скрыть категорию"),
+                        shapeName = badgeShape
+                    )
+
+                    Spacer(Modifier.height(4.dp))
+                    TvMenuItem(
+                        onClick = { showFolderMenu = null },
+                        icon = Icons.Default.Close,
+                        text = tr("Закрыть"),
+                        shapeName = badgeShape
+                    )
+                }
+            }
+        }
+    }
+
+    if (showMoveFolderDialog != null) {
+        val folder = showMoveFolderDialog!!
+        val visibleCats = visibleCategories.filterNot { it in listOf("All", "Favorites", "Recent") }
+        val currentIdx = visibleCats.indexOf(folder)
+        var targetPosText by remember(folder) { mutableStateOf((currentIdx + 1).coerceAtLeast(1).toString()) }
+
+        AlertDialog(
+            onDismissRequest = { showMoveFolderDialog = null },
+            title = { Text(tr("Передвинуть категорию: {0}", getCategoryDisplayName(folder))) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(tr("Текущая позиция: #{0}", currentIdx + 1), style = MaterialTheme.typography.bodyMedium)
+                    OutlinedTextField(
+                        value = targetPosText,
+                        onValueChange = { targetPosText = it },
+                        label = { Text(tr("Новая позиция")) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                val newPos = (currentIdx - 1).coerceAtLeast(0)
+                                viewModel.moveCategory(folder, newPos)
+                                showMoveFolderDialog = null
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text(tr("Вверх ↑")) }
+                        OutlinedButton(
+                            onClick = {
+                                val newPos = currentIdx + 1
+                                viewModel.moveCategory(folder, newPos)
+                                showMoveFolderDialog = null
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text(tr("Вниз ↓")) }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val newPos = (targetPosText.toIntOrNull() ?: 1) - 1
+                    viewModel.moveCategory(folder, newPos)
+                    showMoveFolderDialog = null
+                }) { Text(tr("Передвинуть")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMoveFolderDialog = null }) { Text(tr("Отмена")) }
+            }
+        )
+    }
+
+    if (showFolderLockDialog != null) {
+        val folder = showFolderLockDialog!!
+        var passText by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showFolderLockDialog = null },
+            title = { Text(tr("Запаролить папку: {0}", getCategoryDisplayName(folder))) },
+            text = {
+                OutlinedTextField(
+                    value = passText,
+                    onValueChange = { passText = it },
+                    label = { Text(tr("Введите новый пароль для папки")) },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (passText.isNotBlank()) {
+                        viewModel.lockFolder(folder, passText)
+                        Toast.makeText(context, tr("Папка запаролена"), Toast.LENGTH_SHORT).show()
+                    }
+                    showFolderLockDialog = null
+                }) { Text(tr("Установить пароль")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFolderLockDialog = null }) { Text(tr("Отмена")) }
+            }
+        )
+    }
+
+    if (showFolderPasswordPrompt != null) {
+        val folder = showFolderPasswordPrompt!!
+        val expectedPass = viewModel.getFolderPassword(folder) ?: ""
+        var passInput by remember { mutableStateOf("") }
+        var passError by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { 
+                showFolderPasswordPrompt = null
+                folderToUnlock = null
+            },
+            title = { Text(if (folderToUnlock == folder) tr("Введите пароль для снятия защиты") else tr("Папка защищена паролем")) },
+            text = {
+                Column {
+                    Text(getCategoryDisplayName(folder), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = passInput,
+                        onValueChange = { passInput = it; passError = false },
+                        label = { Text(tr("Пароль")) },
+                        singleLine = true,
+                        isError = passError,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (passError) {
+                        Text(tr("Неверный пароль"), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (passInput == expectedPass) {
+                        if (folderToUnlock == folder) {
+                            viewModel.unlockFolder(folder)
+                            Toast.makeText(context, tr("Пароль с папки снят"), Toast.LENGTH_SHORT).show()
+                            folderToUnlock = null
+                        } else {
+                            viewModel.selectFolder(folder)
+                            viewModel.selectCategory(folder)
+                        }
+                        showFolderPasswordPrompt = null
+                    } else {
+                        passError = true
+                    }
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { 
+                    showFolderPasswordPrompt = null
+                    folderToUnlock = null
+                }) { Text(tr("Отмена")) }
+            }
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun CategoryFolderCard(title: String, count: Int, uiStyle: String, onClick: () -> Unit) {
+fun CategoryFolderCard(
+    title: String,
+    count: Int,
+    uiStyle: String,
+    isLocked: Boolean = false,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
+) {
     var isFocused by remember { mutableStateOf(false) }
+    var isLongPressHandled by remember { mutableStateOf(false) }
+    var isOkKeyDown by remember { mutableStateOf(false) }
+    var longPressJob by remember { mutableStateOf<Job?>(null) }
+    val keyScope = rememberCoroutineScope()
     val cardShape = if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else MaterialTheme.shapes.medium
 
     Surface(
@@ -768,23 +1241,68 @@ fun CategoryFolderCard(title: String, count: Int, uiStyle: String, onClick: () -
                 color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
                 shape = cardShape
             )
-            .clickable { onClick() }
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                val keyCode = event.nativeKeyEvent.keyCode
+                val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                    keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                if (!isConfirm) return@onPreviewKeyEvent false
+                when (event.nativeKeyEvent.action) {
+                    KeyEvent.ACTION_DOWN -> {
+                        if (!isOkKeyDown) {
+                            isOkKeyDown = true
+                            isLongPressHandled = false
+                            longPressJob?.cancel()
+                            longPressJob = keyScope.launch {
+                                delay(550)
+                                if (isOkKeyDown && !isLongPressHandled) {
+                                    isLongPressHandled = true
+                                    onLongClick()
+                                }
+                            }
+                        }
+                        true
+                    }
+                    KeyEvent.ACTION_UP -> {
+                        isOkKeyDown = false
+                        longPressJob?.cancel()
+                        longPressJob = null
+                        if (!isLongPressHandled) onClick()
+                        true
+                    }
+                    else -> true
+                }
+            }
+            .combinedClickable(
+                onClick = { if (!isLongPressHandled) onClick() },
+                onLongClick = onLongClick
+            )
     ) {
         Column(
             modifier = Modifier.padding(12.dp).fillMaxSize(),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                imageVector = when(title) {
-                    "Favorites" -> Icons.Default.Favorite
-                    "Recent" -> Icons.Default.History
-                    else -> Icons.Default.Folder
-                },
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(36.dp)
-            )
+            Box(contentAlignment = Alignment.TopEnd) {
+                Icon(
+                    imageVector = when(title) {
+                        "Favorites" -> Icons.Default.Favorite
+                        "Recent" -> Icons.Default.History
+                        else -> Icons.Default.Folder
+                    },
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(36.dp)
+                )
+                if (isLocked) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = Color.Gray,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
             Spacer(Modifier.height(8.dp))
             Text(getCategoryDisplayName(title), fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
             Text(stringResource(R.string.folder_channels_count, count), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -793,24 +1311,76 @@ fun CategoryFolderCard(title: String, count: Int, uiStyle: String, onClick: () -
 }
 
 @Composable
-fun TvMenuItem(onClick: () -> Unit, icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, modifier: Modifier = Modifier) {
+fun TvMenuItem(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    modifier: Modifier = Modifier,
+    shapeName: String = "Cookie",
+    badgeColorName: String = "Auto",
+    rotationEnabled: Boolean = false
+) {
     var isFocused by remember { mutableStateOf(false) }
-    
+    var isKeyDownOnMe by remember { mutableStateOf(false) }
+
     Surface(
-        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = if (isFocused) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = modifier
             .fillMaxWidth()
+            .padding(vertical = 3.dp)
             .onFocusChanged { isFocused = it.isFocused }
-            .scale(if (isFocused) 1.05f else 1f)
-            .padding(vertical = 4.dp)
-            .border(if (isFocused) 2.dp else 0.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small),
-        color = if (isFocused) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-        shape = MaterialTheme.shapes.small
+            .scale(if (isFocused) 1.03f else 1f)
+            .border(
+                width = if (isFocused) 2.dp else 0.dp,
+                color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = RoundedCornerShape(16.dp)
+            )
+            .onPreviewKeyEvent { event ->
+                val keyCode = event.nativeKeyEvent.keyCode
+                val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                        keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                if (!isConfirm) return@onPreviewKeyEvent false
+                when (event.nativeKeyEvent.action) {
+                    KeyEvent.ACTION_DOWN -> {
+                        isKeyDownOnMe = true
+                        true
+                    }
+                    KeyEvent.ACTION_UP -> {
+                        if (isKeyDownOnMe) {
+                            isKeyDownOnMe = false
+                            onClick()
+                        }
+                        true
+                    }
+                    else -> true
+                }
+            }
+            .clickable { onClick() }
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(12.dp)) {
-            Icon(icon, null, tint = if(isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.width(12.dp))
-            Text(text, color = if(isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, fontWeight = if(isFocused) FontWeight.Bold else FontWeight.Normal)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            IconBadge(
+                icon = icon,
+                containerColor = if (isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = if (isFocused) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                size = 36.dp,
+                shapeName = shapeName,
+                badgeColorName = badgeColorName,
+                rotationEnabled = rotationEnabled || isFocused
+            )
+            Text(
+                text = text,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (isFocused) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
@@ -829,7 +1399,21 @@ private fun channelGridCells(mode: String): GridCells = when (mode) {
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun ChannelCard(channel: IptvChannel, currentProgram: EpgProgram?, nextProgram: EpgProgram?, viewingTime: Long, fontSize: Float, listSize: String, uiStyle: String, onClick: () -> Unit, onLongClick: () -> Unit) {
+fun ChannelCard(
+    channel: IptvChannel,
+    currentProgram: EpgProgram?,
+    nextProgram: EpgProgram?,
+    viewingTime: Long,
+    fontSize: Float,
+    listSize: String,
+    uiStyle: String,
+    channelNumber: Int? = null,
+    cornerRadius: Int = 22,
+    scaleIntensity: Float = 1.08f,
+    glowEnabled: Boolean = true,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
     val isListLayout = listSize in listOf("SimpleList", "CompactList", "CompactList2")
     val height = when (listSize) {
         "SimpleList" -> 88.dp
@@ -847,8 +1431,8 @@ fun ChannelCard(channel: IptvChannel, currentProgram: EpgProgram?, nextProgram: 
     val cardShape = when (listSize) {
         "NarrowCards" -> RoundedCornerShape(6.dp)
         "SmallCards", "SideBySideSmall" -> RoundedCornerShape(10.dp)
-        "LargeCards", "SideBySideLarge", "SideBySideHuge" -> RoundedCornerShape(22.dp)
-        else -> if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else MaterialTheme.shapes.medium
+        "LargeCards", "SideBySideLarge", "SideBySideHuge" -> RoundedCornerShape(cornerRadius.dp)
+        else -> if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else RoundedCornerShape(cornerRadius.dp)
     }
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     var isFocused by remember { mutableStateOf(false) }
@@ -865,10 +1449,10 @@ fun ChannelCard(channel: IptvChannel, currentProgram: EpgProgram?, nextProgram: 
             .fillMaxWidth()
             .then(if (isListLayout) Modifier.height(height) else Modifier.height(height))
             .onFocusChanged { isFocused = it.isFocused }
-            .scale(if (isFocused) 1.08f else 1f)
+            .scale(if (isFocused) scaleIntensity else 1f)
             .border(
-                width = if (isFocused) 3.dp else 0.dp,
-                color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                width = if (isFocused && glowEnabled) 3.dp else 0.dp,
+                color = if (isFocused && glowEnabled) MaterialTheme.colorScheme.primary else Color.Transparent,
                 shape = cardShape
             )
             // Handle remote OK before clickable semantics. Some TV remotes do not
@@ -926,7 +1510,8 @@ fun ChannelCard(channel: IptvChannel, currentProgram: EpgProgram?, nextProgram: 
                         contentScale = ContentScale.Fit
                     )
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                        Text(channel.name, maxLines = 1, fontSize = (if (listSize == "CompactList2") fontSize - 2 else fontSize).sp, fontWeight = FontWeight.Bold)
+                        val displayName = if (channelNumber != null) "#$channelNumber ${channel.name}" else channel.name
+                        Text(displayName, maxLines = 1, fontSize = (if (listSize == "CompactList2") fontSize - 2 else fontSize).sp, fontWeight = FontWeight.Bold)
                         if (channel.isLocked) {
                             Text("🔒", fontSize = 10.sp)
                         } else if (currentProgram != null) {
@@ -973,7 +1558,7 @@ fun ChannelCard(channel: IptvChannel, currentProgram: EpgProgram?, nextProgram: 
                 Spacer(modifier = Modifier.height(4.dp))
                 
                 Text(
-                    text = channel.name,
+                    text = if (channelNumber != null) "#$channelNumber ${channel.name}" else channel.name,
                     style = MaterialTheme.typography.titleSmall.copy(fontSize = fontSize.sp),
                     maxLines = 1,
                     fontWeight = FontWeight.Bold,
@@ -1028,15 +1613,16 @@ fun ChannelCard(channel: IptvChannel, currentProgram: EpgProgram?, nextProgram: 
                 val hours = viewingTime / 3600
                 val minutes = (viewingTime % 3600) / 60
                 Surface(
-                    color = Color.Black.copy(alpha = 0.6f),
-                    shape = MaterialTheme.shapes.extraSmall,
-                    modifier = Modifier.padding(4.dp).align(Alignment.TopStart)
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                    shape = CircleShape,
+                    modifier = Modifier.align(Alignment.Center)
                 ) {
                     Text(
-                        text = String.format("%02d:%02d h", hours, minutes),
-                        color = Color.White,
-                        fontSize = 8.sp,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        text = String.format(Locale.US, "⏱ %02d:%02d h", hours, minutes),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
             }

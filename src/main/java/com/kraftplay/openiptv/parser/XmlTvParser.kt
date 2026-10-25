@@ -13,7 +13,9 @@ object XmlTvParser {
     suspend fun parseStreaming(
         inputStream: InputStream,
         isGzipped: Boolean = false,
-        cutoffTime: Long = System.currentTimeMillis() - 14L * 24L * 60L * 60L * 1000L,
+        cutoffTime: Long = System.currentTimeMillis() - 30L * 24L * 60L * 60L * 1000L,
+        futureLimit: Long = System.currentTimeMillis() + 30L * 24L * 60L * 60L * 1000L,
+        onChannelNamesParsed: (suspend (Map<String, List<String>>) -> Unit)? = null,
         onBatchReady: suspend (List<EpgProgram>) -> Unit
     ) {
         val stream = if (isGzipped) {
@@ -21,6 +23,7 @@ object XmlTvParser {
         } else inputStream
 
         val batch = mutableListOf<EpgProgram>()
+        val channelNames = mutableMapOf<String, List<String>>()
         val maxBatchSize = 1000
 
         try {
@@ -30,55 +33,84 @@ object XmlTvParser {
 
             var eventType = parser.eventType
             while (eventType != XmlPullParser.END_DOCUMENT) {
-                if (eventType == XmlPullParser.START_TAG && parser.name == "programme") {
-                    val channelId = parser.getAttributeValue(null, "channel") ?: ""
-                    val startStr = parser.getAttributeValue(null, "start")
-                    val stopStr = parser.getAttributeValue(null, "stop")
-
-                    var title = ""
-                    var desc = ""
-                    var category = ""
-                    var icon = ""
-
-                    var event = parser.next()
-                    while (!(event == XmlPullParser.END_TAG && parser.name == "programme")) {
-                        if (event == XmlPullParser.START_TAG) {
-                            when (parser.name) {
-                                "title" -> title = readText(parser)
-                                "desc" -> desc = readText(parser)
-                                "category" -> category = readText(parser)
-                                "icon" -> {
-                                    icon = parser.getAttributeValue(null, "src") ?: ""
-                                    skip(parser)
+                if (eventType == XmlPullParser.START_TAG) {
+                    when (parser.name) {
+                        "channel" -> {
+                            val channelId = parser.getAttributeValue(null, "id") ?: ""
+                            val names = mutableListOf<String>()
+                            var event = parser.next()
+                            while (!(event == XmlPullParser.END_TAG && parser.name == "channel")) {
+                                if (event == XmlPullParser.START_TAG) {
+                                    if (parser.name == "display-name") {
+                                        val name = readText(parser)
+                                        if (name.isNotBlank()) names.add(name)
+                                    } else {
+                                        skip(parser)
+                                    }
                                 }
-                                else -> skip(parser)
+                                event = parser.next()
+                            }
+                            if (channelId.isNotBlank() && names.isNotEmpty()) {
+                                channelNames[channelId.trim().lowercase(Locale.ROOT)] = names
                             }
                         }
-                        event = parser.next()
-                    }
+                        "programme" -> {
+                            if (channelNames.isNotEmpty() && onChannelNamesParsed != null) {
+                                onChannelNamesParsed(HashMap(channelNames))
+                            }
+                            val channelId = parser.getAttributeValue(null, "channel") ?: ""
+                            val startStr = parser.getAttributeValue(null, "start")
+                            val stopStr = parser.getAttributeValue(null, "stop")
 
-                    val startTime = parseXmlTvDate(startStr)
-                    val endTime = parseXmlTvDate(stopStr)
+                            var title = ""
+                            var desc = ""
+                            var category = ""
+                            var icon = ""
 
-                    if (startTime != null && endTime != null && endTime > cutoffTime && title.isNotEmpty() && channelId.isNotEmpty()) {
-                        batch.add(
-                            EpgProgram(
-                                channelId = channelId.trim(),
-                                title = title.trim(),
-                                startTime = startTime,
-                                endTime = endTime,
-                                description = if (desc.isBlank()) null else desc.trim(),
-                                category = if (category.isBlank()) null else category.trim(),
-                                iconUrl = if (icon.isBlank()) null else icon.trim()
-                            )
-                        )
-                        if (batch.size >= maxBatchSize) {
-                            onBatchReady(ArrayList(batch))
-                            batch.clear()
+                            var event = parser.next()
+                            while (!(event == XmlPullParser.END_TAG && parser.name == "programme")) {
+                                if (event == XmlPullParser.START_TAG) {
+                                    when (parser.name) {
+                                        "title" -> title = readText(parser)
+                                        "desc" -> desc = readText(parser)
+                                        "category" -> category = readText(parser)
+                                        "icon" -> {
+                                            icon = parser.getAttributeValue(null, "src") ?: ""
+                                            skip(parser)
+                                        }
+                                        else -> skip(parser)
+                                    }
+                                }
+                                event = parser.next()
+                            }
+
+                            val startTime = parseXmlTvDate(startStr)
+                            val endTime = parseXmlTvDate(stopStr)
+
+                            if (startTime != null && endTime != null && endTime > cutoffTime && startTime < futureLimit && title.isNotEmpty() && channelId.isNotEmpty()) {
+                                batch.add(
+                                    EpgProgram(
+                                        channelId = channelId.trim(),
+                                        title = title.trim(),
+                                        startTime = startTime,
+                                        endTime = endTime,
+                                        description = if (desc.isBlank()) null else desc.trim(),
+                                        category = if (category.isBlank()) null else category.trim(),
+                                        iconUrl = if (icon.isBlank()) null else icon.trim()
+                                    )
+                                )
+                                if (batch.size >= maxBatchSize) {
+                                    onBatchReady(ArrayList(batch))
+                                    batch.clear()
+                                }
+                            }
                         }
                     }
                 }
                 eventType = parser.next()
+            }
+            if (channelNames.isNotEmpty() && onChannelNamesParsed != null) {
+                onChannelNamesParsed(channelNames)
             }
             if (batch.isNotEmpty()) {
                 onBatchReady(ArrayList(batch))

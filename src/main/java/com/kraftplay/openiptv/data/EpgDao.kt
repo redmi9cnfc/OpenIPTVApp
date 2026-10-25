@@ -21,7 +21,7 @@ interface EpgDao {
     @Query("DELETE FROM epg_programs WHERE endTime < :cutoffTime")
     suspend fun deleteExpired(cutoffTime: Long)
 
-    @Query("SELECT * FROM epg_programs WHERE endTime > (:now - 21600000) AND startTime < (:now + 604800000) ORDER BY startTime ASC")
+    @Query("SELECT * FROM epg_programs WHERE endTime > (:now - 259200000) AND startTime < (:now + 604800000) ORDER BY startTime ASC")
     suspend fun getAllValidPrograms(now: Long): List<EpgProgram>
 
     @Query("SELECT * FROM epg_programs WHERE LOWER(channelId) = LOWER(:channelId) AND endTime > :now ORDER BY startTime ASC")
@@ -33,6 +33,6 @@ interface EpgDao {
     @Query("SELECT * FROM epg_programs WHERE LOWER(channelId) = LOWER(:channelId) AND startTime > :now ORDER BY startTime ASC LIMIT 1")
     suspend fun getNextProgram(channelId: String, now: Long): EpgProgram?
 
-    @Query("SELECT * FROM epg_programs WHERE (LOWER(title) LIKE '%' || LOWER(:query) || '%' OR LOWER(description) LIKE '%' || LOWER(:query) || '%') AND endTime > (:now - 1209600000) ORDER BY startTime ASC LIMIT 300")
+    @Query("SELECT * FROM epg_programs WHERE (LOWER(title) LIKE '%' || LOWER(:query) || '%' OR LOWER(description) LIKE '%' || LOWER(:query) || '%') AND endTime > (:now - 2592000000) ORDER BY startTime ASC LIMIT 300")
     suspend fun searchPrograms(query: String, now: Long): List<EpgProgram>
 }

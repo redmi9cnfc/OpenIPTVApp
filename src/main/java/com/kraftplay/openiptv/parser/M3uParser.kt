@@ -10,9 +10,10 @@ object M3uParser {
     )
 
     fun parseWithEpg(inputStream: InputStream): ParseResult {
-        val channels = mutableListOf<IptvChannel>()
-        val epgUrls = mutableListOf<String>()
+        val channels = ArrayList<IptvChannel>()
+        val epgUrls = LinkedHashSet<String>()
         val reader = inputStream.bufferedReader()
+        
         var currentName = ""
         var currentLogo = ""
         var currentCategory = ""
@@ -22,61 +23,32 @@ object M3uParser {
         var currentCatchupSource: String? = null
         var currentCatchupDays: Int? = null
 
-        val logoRegex = """tvg-logo=["']?([^"'\s>]+)["']?""".toRegex(RegexOption.IGNORE_CASE)
-        val categoryRegex = """group-title=["']?([^"'\r\n,]+)["']?""".toRegex(RegexOption.IGNORE_CASE)
-        val epgIdRegex = """tvg-id=["']?([^"'\s,]+)["']?""".toRegex(RegexOption.IGNORE_CASE)
-        val tvgNameRegex = """tvg-name=["']?([^"'\r\n,]+)["']?""".toRegex(RegexOption.IGNORE_CASE)
-        val catchupRegex = """catchup=["']?([^"'\s>]+)["']?""".toRegex(RegexOption.IGNORE_CASE)
-        val catchupSourceRegex = """catchup-source=["']([^"']*)["']""".toRegex(RegexOption.IGNORE_CASE)
-        val catchupDaysRegex = """catchup-days=["']?(\d+)["']?""".toRegex(RegexOption.IGNORE_CASE)
-        val urlTvgRegex = """(?:url-tvg|x-tvg-url)=["']?([^"'\r\n>]+)["']?""".toRegex(RegexOption.IGNORE_CASE)
-
         reader.useLines { lines ->
             lines.forEach { line ->
                 val trimmedLine = line.trim().replace("\uFEFF", "")
+                if (trimmedLine.isEmpty()) return@forEach
+
                 val lowerLine = trimmedLine.lowercase()
                 when {
                     lowerLine.startsWith("#extm3u") -> {
-                        urlTvgRegex.find(trimmedLine)?.groupValues?.get(1)?.let { rawUrls ->
-                            rawUrls.split(",", ";").forEach { u ->
-                                val cleanUrl = u.trim()
-                                if (cleanUrl.startsWith("http://", ignoreCase = true) || cleanUrl.startsWith("https://", ignoreCase = true)) {
-                                    epgUrls.add(cleanUrl)
-                                }
-                            }
-                        }
+                        extractAttribute(trimmedLine, "url-tvg=")?.let { addEpgUrls(it, epgUrls) }
+                        extractAttribute(trimmedLine, "x-tvg-url=")?.let { addEpgUrls(it, epgUrls) }
                     }
                     lowerLine.startsWith("#extinf:") || lowerLine.startsWith("#extinf ") -> {
                         currentName = trimmedLine.substringAfterLast(",").trim()
-                        currentLogo = ""
-                        currentCategory = ""
-                        currentEpgId = ""
-                        currentTvgName = ""
-                        currentCatchup = null
-                        currentCatchupSource = null
-                        currentCatchupDays = null
-                        
-                        logoRegex.find(trimmedLine)?.groupValues?.get(1)?.let {
-                            if (it.isNotBlank()) currentLogo = it
-                        }
-                        categoryRegex.find(trimmedLine)?.groupValues?.get(1)?.let {
-                            if (it.isNotBlank()) currentCategory = it
-                        }
-                        epgIdRegex.find(trimmedLine)?.groupValues?.get(1)?.let {
-                            if (it.isNotBlank()) currentEpgId = it
-                        }
-                        tvgNameRegex.find(trimmedLine)?.groupValues?.get(1)?.let {
-                            if (it.isNotBlank()) currentTvgName = it
-                        }
-                        currentCatchup = catchupRegex.find(trimmedLine)?.groupValues?.get(1)
-                        currentCatchupSource = catchupSourceRegex.find(trimmedLine)?.groupValues?.get(1)
-                        currentCatchupDays = catchupDaysRegex.find(trimmedLine)?.groupValues?.get(1)?.toIntOrNull()
+                        currentLogo = extractAttribute(trimmedLine, "tvg-logo=").orEmpty()
+                        currentCategory = extractAttribute(trimmedLine, "group-title=").orEmpty()
+                        currentEpgId = extractAttribute(trimmedLine, "tvg-id=").orEmpty()
+                        currentTvgName = extractAttribute(trimmedLine, "tvg-name=").orEmpty()
+                        currentCatchup = extractAttribute(trimmedLine, "catchup=")
+                        currentCatchupSource = extractAttribute(trimmedLine, "catchup-source=")
+                        currentCatchupDays = extractAttribute(trimmedLine, "catchup-days=")?.toIntOrNull()
                     }
                     lowerLine.startsWith("#extgrp:") -> {
                         val grp = trimmedLine.substringAfter(":").trim()
                         if (grp.isNotBlank()) currentCategory = grp
                     }
-                    trimmedLine.isNotEmpty() && !trimmedLine.startsWith("#") -> {
+                    !trimmedLine.startsWith("#") -> {
                         val streamUrl = trimmedLine
                         if (streamUrl.isNotBlank()) {
                             val name = if (currentName.isNotBlank()) currentName else "Channel ${channels.size + 1}"
@@ -106,7 +78,31 @@ object M3uParser {
                 }
             }
         }
-        return ParseResult(channels, epgUrls.distinct())
+        return ParseResult(channels, epgUrls.toList())
+    }
+
+    private fun addEpgUrls(rawUrls: String, destination: MutableSet<String>) {
+        rawUrls.split(",", ";").forEach { u ->
+            val cleanUrl = u.trim()
+            if (cleanUrl.startsWith("http://", ignoreCase = true) || cleanUrl.startsWith("https://", ignoreCase = true)) {
+                destination.add(cleanUrl)
+            }
+        }
+    }
+
+    private fun extractAttribute(line: String, key: String): String? {
+        val idx = line.indexOf(key, ignoreCase = true)
+        if (idx == -1) return null
+        val startValue = idx + key.length
+        if (startValue >= line.length) return null
+        val quote = line[startValue]
+        return if (quote == '"' || quote == '\'') {
+            val endValue = line.indexOf(quote, startValue + 1)
+            if (endValue != -1) line.substring(startValue + 1, endValue) else null
+        } else {
+            val endValue = line.indexOfAny(charArrayOf(' ', ',', '>'), startValue)
+            if (endValue != -1) line.substring(startValue, endValue) else line.substring(startValue)
+        }
     }
 
     fun parse(inputStream: InputStream): List<IptvChannel> {
