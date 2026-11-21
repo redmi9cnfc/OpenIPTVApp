@@ -77,60 +77,6 @@ fun getCategoryDisplayName(category: String): String {
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun InPageDialog(
-    onDismissRequest: () -> Unit,
-    title: @Composable (() -> Unit)? = null,
-    text: @Composable (() -> Unit)? = null,
-    confirmButton: @Composable (() -> Unit)? = null,
-    dismissButton: @Composable (() -> Unit)? = null
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.75f))
-            .clickable(onClick = onDismissRequest),
-        contentAlignment = Alignment.Center
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .padding(16.dp)
-                .clickable(enabled = false, onClick = {}),
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 8.dp
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                if (title != null) {
-                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-                        title()
-                    }
-                    Spacer(Modifier.height(12.dp))
-                }
-                if (text != null) {
-                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) {
-                        text()
-                    }
-                    Spacer(Modifier.height(16.dp))
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    dismissButton?.invoke()
-                    if (dismissButton != null && confirmButton != null) {
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    confirmButton?.invoke()
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
-@Composable
 fun MainScreen(
     viewModel: MainViewModel,
     onChannelClick: (IptvChannel) -> Unit,
@@ -139,7 +85,7 @@ fun MainScreen(
     onYouTubeClick: (() -> Unit)? = null,
     onRuTubeClick: (() -> Unit)? = null,
     onBrowserClick: (() -> Unit)? = null,
-    onPrismaClick: (() -> Unit)? = null
+    onMsxClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val channels by viewModel.filteredChannels.collectAsState()
@@ -227,59 +173,43 @@ fun MainScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("OpenIPTV", fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                            val currentPlaylist = playlists.find { it.isSelected }
-                            if (currentPlaylist != null) {
-                                val shouldShowUrl = !hideUrl && currentPlaylist.url.isNotBlank() && !currentPlaylist.url.startsWith("data:text/plain;base64,", ignoreCase = true)
-                                Box {
-                                    Surface(
-                                        onClick = { showPlaylistMenu = true },
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                        modifier = Modifier.padding(top = 2.dp)
+                            val currentPlaylist = playlists.find { it.isSelected } ?: playlists.firstOrNull()
+                            if (playlists.isNotEmpty()) {
+                                val shouldShowUrl = currentPlaylist != null && !hideUrl && currentPlaylist.url.isNotBlank() && !currentPlaylist.url.startsWith("data:text/plain;base64,", ignoreCase = true)
+                                Surface(
+                                    onClick = { showPlaylistMenu = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    modifier = Modifier.padding(top = 2.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                        Column(modifier = Modifier.weight(1f, fill = false)) {
+                                            Text(
+                                                currentPlaylist?.name ?: tr("Выберите плейлист"),
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1
+                                            )
+                                            if (shouldShowUrl && currentPlaylist != null) {
                                                 Text(
-                                                    currentPlaylist.name,
-                                                    fontSize = 11.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    fontWeight = FontWeight.Bold,
+                                                    currentPlaylist.url,
+                                                    fontSize = 9.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     maxLines = 1
                                                 )
-                                                if (shouldShowUrl) {
-                                                    Text(
-                                                        currentPlaylist.url,
-                                                        fontSize = 9.sp,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        maxLines = 1
-                                                    )
-                                                }
                                             }
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = "Select playlist",
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(16.dp)
-                                            )
                                         }
-                                    }
-                                    DropdownMenu(
-                                        expanded = showPlaylistMenu,
-                                        onDismissRequest = { showPlaylistMenu = false }
-                                    ) {
-                                        playlists.filter { it.enabled }.forEach { playlist ->
-                                            DropdownMenuItem(
-                                                text = { Text((if (playlist.isSelected) "✓ " else "") + playlist.name, maxLines = 1) },
-                                                onClick = {
-                                                    showPlaylistMenu = false
-                                                    viewModel.selectPlaylist(playlist.id)
-                                                }
-                                            )
-                                        }
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = "Select playlist",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
                                     }
                                 }
                             }
@@ -449,8 +379,8 @@ fun MainScreen(
 
                             val handleChipClick = {
                                 if (!isLongPressHandled) {
-                                    if (category == "Prisma") {
-                                        if (onPrismaClick != null) onPrismaClick()
+                                    if (category == "MSX" || category == "Prisma") {
+                                        if (onMsxClick != null) onMsxClick()
                                     } else if (isFolderLocked) {
                                         showFolderPasswordPrompt = category
                                     } else {
@@ -462,12 +392,12 @@ fun MainScreen(
                             FilterChip(
                                 selected = category == selectedCategory,
                                 onClick = handleChipClick,
-                                label = { Text(getCategoryDisplayName(category), fontSize = (fontSize - 2).sp) },
+                                label = { Text(if (category == "MSX" || category == "Prisma") "Media Station X" else getCategoryDisplayName(category), fontSize = (fontSize - 2).sp) },
                                 leadingIcon = { 
                                     when(category) {
                                         "Favorites" -> Icon(Icons.Default.Favorite, null, modifier = Modifier.size(16.dp))
                                         "Recent" -> Icon(Icons.Default.History, null, modifier = Modifier.size(16.dp))
-                                        "Prisma" -> Icon(Icons.Default.Public, null, modifier = Modifier.size(16.dp), tint = Color(0xFF4285F4))
+                                        "MSX", "Prisma" -> Icon(Icons.Default.Public, null, modifier = Modifier.size(16.dp), tint = Color(0xFF00A2E8))
                                     }
                                 },
                                 trailingIcon = if (isFolderLocked) {
@@ -581,19 +511,19 @@ fun MainScreen(
                         ) {
                             item {
                                 CategoryFolderCard(
-                                    title = "Prisma",
+                                    title = "Media Station X",
                                     count = 1,
                                     uiStyle = uiStyle,
                                     isLocked = false,
                                     onClick = {
-                                        if (onPrismaClick != null) {
-                                            onPrismaClick()
+                                        if (onMsxClick != null) {
+                                            onMsxClick()
                                         }
                                     },
                                     onLongClick = {}
                                 )
                             }
-                            items(visibleCategories.filter { it != "Prisma" }) { category ->
+                            items(visibleCategories.filter { it != "MSX" && it != "Prisma" }) { category ->
                                 val count = categoryCounts[category] ?: 0
                                 val isFolderLocked = viewModel.isFolderLocked(category)
                                 CategoryFolderCard(
@@ -668,9 +598,52 @@ fun MainScreen(
                     }
                 }
             }
-        }
-    }
 }
+
+    if (showPlaylistMenu) {
+        val currentPlaylist = playlists.find { it.isSelected } ?: playlists.firstOrNull()
+        InPageDialog(
+            onDismissRequest = { showPlaylistMenu = false },
+            title = { Text(tr("Выберите плейлист"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) },
+            text = {
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
+                    items(playlists) { playlist ->
+                        val isSelected = currentPlaylist?.id == playlist.id
+                        GroupItem(
+                            onClick = {
+                                showPlaylistMenu = false
+                                viewModel.selectPlaylist(playlist.id)
+                            }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(12.dp)
+                            ) {
+                                RadioButton(selected = isSelected, onClick = null)
+                                Spacer(Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        playlist.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (!playlist.enabled) {
+                                        Text(tr("Отключен"), fontSize = 11.sp, color = Color.Gray)
+                                    }
+                                }
+                                if (playlist.password?.isNotBlank() == true) {
+                                    Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showPlaylistMenu = false }) { Text(tr("Отмена")) } }
+        )
+    }
 
     if (showAddPlaylistDialog) {
         AddDialog(
@@ -944,7 +917,7 @@ fun MainScreen(
             }
         }
 
-        AlertDialog(
+        InPageDialog(
             onDismissRequest = { showPasswordDialog = null; tempPassword1 = ""; passwordError = false },
             title = { 
                 Text(when(action) {
@@ -991,7 +964,7 @@ fun MainScreen(
         val schedule by viewModel.getChannelSchedule(channel.url).collectAsState(emptyList())
         val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-        AlertDialog(
+        InPageDialog(
             onDismissRequest = { showEpgSchedule = null },
             title = { Text("Schedule: ${channel.name}") },
             text = {
@@ -1051,12 +1024,12 @@ fun MainScreen(
         val currentIdx = channels.indexOfFirst { it.url == ch.url }
         var targetPosText by remember(ch.url) { mutableStateOf((currentIdx + 1).coerceAtLeast(1).toString()) }
 
-        AlertDialog(
+        InPageDialog(
             onDismissRequest = { showMoveChannelDialog = null },
             title = { Text(tr("Передвинуть канал: {0}", ch.name)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(tr("Текущая позиция: #{0}", currentIdx + 1), style = MaterialTheme.typography.bodyMedium)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(tr("Текущая позиция: #{0} из {1}", currentIdx + 1, channels.size), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                     OutlinedTextField(
                         value = targetPosText,
                         onValueChange = { targetPosText = it },
@@ -1065,7 +1038,14 @@ fun MainScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.moveChannel(ch.url, 0)
+                                showMoveChannelDialog = null
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("В начало ⤒") }
                         OutlinedButton(
                             onClick = {
                                 val newPos = (currentIdx - 1).coerceAtLeast(0)
@@ -1074,6 +1054,8 @@ fun MainScreen(
                             },
                             modifier = Modifier.weight(1f)
                         ) { Text(tr("Вверх ↑")) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         OutlinedButton(
                             onClick = {
                                 val newPos = currentIdx + 1
@@ -1082,6 +1064,13 @@ fun MainScreen(
                             },
                             modifier = Modifier.weight(1f)
                         ) { Text(tr("Вниз ↓")) }
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.moveChannel(ch.url, (channels.size - 1).coerceAtLeast(0))
+                                showMoveChannelDialog = null
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("В конец ⤓") }
                     }
                 }
             },
@@ -1227,7 +1216,7 @@ fun MainScreen(
         val currentIdx = visibleCats.indexOf(folder)
         var targetPosText by remember(folder) { mutableStateOf((currentIdx + 1).coerceAtLeast(1).toString()) }
 
-        AlertDialog(
+        InPageDialog(
             onDismissRequest = { showMoveFolderDialog = null },
             title = { Text(tr("Передвинуть категорию: {0}", getCategoryDisplayName(folder))) },
             text = {
@@ -1278,7 +1267,7 @@ fun MainScreen(
         val folder = showFolderLockDialog!!
         var passText by remember { mutableStateOf("") }
 
-        AlertDialog(
+        InPageDialog(
             onDismissRequest = { showFolderLockDialog = null },
             title = { Text(tr("Запаролить папку: {0}", getCategoryDisplayName(folder))) },
             text = {
@@ -1313,7 +1302,7 @@ fun MainScreen(
         var passInput by remember { mutableStateOf("") }
         var passError by remember { mutableStateOf(false) }
 
-        AlertDialog(
+        InPageDialog(
             onDismissRequest = { 
                 showFolderPasswordPrompt = null
                 folderToUnlock = null
@@ -1373,6 +1362,8 @@ fun MainScreen(
                 viewModel.updateSearchQuery(query)
             }
         )
+    }
+        }
     }
 }
 

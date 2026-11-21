@@ -162,7 +162,7 @@
             </intent-filter>
         </service>
 
-        <!-- 4. OpenIPTV Audio (медиабраузер фонового воспроизведения звука) -->
+        <!-- 4. OpenIPTV Audio (официальный разрешенный интерфейс воспроизведения звука в авто) -->
         <service
             android:name=".service.PlaybackService"
             android:exported="true"
@@ -172,6 +172,9 @@
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaLibraryService" />
                 <action android:name="android.media.browse.MediaBrowserService" />
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="com.google.android.gms.car.category.CATEGORY_PROJECTION" />
+                <category android:name="com.google.android.gms.car.category.CATEGORY_PROJECTION_OEM" />
             </intent-filter>
         </service>
 

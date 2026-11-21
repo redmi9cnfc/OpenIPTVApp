@@ -59,6 +59,19 @@ fun YouTubeScreen(onBack: () -> Unit) {
     var customView: View? by remember { mutableStateOf(null) }
     var customViewCallback: WebChromeClient.CustomViewCallback? by remember { mutableStateOf(null) }
 
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+        val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            ).build()
+        audioManager?.requestAudioFocus(req)
+        onDispose { audioManager?.abandonAudioFocusRequest(req) }
+    }
+
     BackHandler {
         if (customView != null) {
             customViewCallback?.onCustomViewHidden()

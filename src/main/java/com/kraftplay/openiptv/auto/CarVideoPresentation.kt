@@ -41,6 +41,7 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.kraftplay.openiptv.service.SharedPlayerManager
 import com.kraftplay.openiptv.ui.MainScreen
 import com.kraftplay.openiptv.ui.PlayerScreen
 import com.kraftplay.openiptv.ui.SeasonalEffects
@@ -163,9 +164,56 @@ class CarVideoPresentation(
         super.dismiss()
     }
 
+    private fun handleSteeringWheelKey(keyCode: Int): Boolean {
+        val prefs = context.getSharedPreferences("com.kraftplay.openiptv_preferences", Context.MODE_PRIVATE)
+            ?: context.getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        val exo = SharedPlayerManager.getOrCreatePlayer(context)
+
+        val nextAction = prefs.getString("wheel_next_action", "NextChannel") ?: "NextChannel"
+        val prevAction = prefs.getString("wheel_prev_action", "PrevChannel") ?: "PrevChannel"
+        val chUpAction = prefs.getString("wheel_channel_up_action", "NextChannel") ?: "NextChannel"
+        val chDownAction = prefs.getString("wheel_channel_down_action", "PrevChannel") ?: "PrevChannel"
+
+        fun executeAction(actionStr: String) {
+            when (actionStr) {
+                "NextChannel" -> {
+                    if (exo.hasNextMediaItem()) exo.seekToNextMediaItem() else exo.seekTo(0, 0L)
+                }
+                "PrevChannel" -> {
+                    if (exo.hasPreviousMediaItem()) exo.seekToPreviousMediaItem() else exo.seekTo(exo.mediaItemCount.coerceAtLeast(1) - 1, 0L)
+                }
+                "Skip10" -> exo.seekTo((exo.currentPosition + 10_000L).coerceAtMost(exo.duration.coerceAtLeast(0L)))
+                "Skip30" -> exo.seekTo((exo.currentPosition + 30_000L).coerceAtMost(exo.duration.coerceAtLeast(0L)))
+                "Skip60" -> exo.seekTo((exo.currentPosition + 60_000L).coerceAtMost(exo.duration.coerceAtLeast(0L)))
+                "Rewind10" -> exo.seekTo((exo.currentPosition - 10_000L).coerceAtLeast(0L))
+                "Rewind30" -> exo.seekTo((exo.currentPosition - 30_000L).coerceAtLeast(0L))
+                "Rewind60" -> exo.seekTo((exo.currentPosition - 60_000L).coerceAtLeast(0L))
+            }
+        }
+
+        return when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_NEXT -> { executeAction(nextAction); true }
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { executeAction(prevAction); true }
+            KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> { executeAction(chUpAction); true }
+            KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> { executeAction(chDownAction); true }
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> {
+                if (exo.isPlaying) exo.pause() else exo.play()
+                true
+            }
+            KeyEvent.KEYCODE_MEDIA_PLAY -> { exo.play(); true }
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> { exo.pause(); true }
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { executeAction("Skip30"); true }
+            KeyEvent.KEYCODE_MEDIA_REWIND -> { executeAction("Rewind30"); true }
+            else -> false
+        }
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             backDispatcher.onBackPressed()
+            return true
+        }
+        if (handleSteeringWheelKey(keyCode)) {
             return true
         }
         return super.onKeyDown(keyCode, event)

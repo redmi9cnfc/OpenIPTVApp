@@ -346,10 +346,28 @@ open class PlaybackService : MediaLibraryService() {
                     }
                     KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
                         when (prevAction) {
-                            "Rewind10" -> player.seekTo((player.currentPosition - 10_000L).coerceAtMost(player.duration.coerceAtLeast(0L)))
-                            "Rewind30" -> player.seekTo((player.currentPosition - 30_000L).coerceAtMost(player.duration.coerceAtLeast(0L)))
-                            "Rewind60" -> player.seekTo((player.currentPosition - 60_000L).coerceAtMost(player.duration.coerceAtLeast(0L)))
-                            else -> if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo(player.mediaItemCount - 1, 0L)
+                            "Rewind10" -> player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
+                            "Rewind30" -> player.seekTo((player.currentPosition - 30_000L).coerceAtLeast(0L))
+                            "Rewind60" -> player.seekTo((player.currentPosition - 60_000L).coerceAtLeast(0L))
+                            else -> if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo((player.mediaItemCount - 1).coerceAtLeast(0), 0L)
+                        }
+                        return true
+                    }
+                    KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> {
+                        val chUpAction = prefs.getString("wheel_channel_up_action", "NextChannel") ?: "NextChannel"
+                        when (chUpAction) {
+                            "PrevChannel" -> if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo((player.mediaItemCount - 1).coerceAtLeast(0), 0L)
+                            "Skip10" -> player.seekTo((player.currentPosition + 10_000L).coerceAtMost(player.duration.coerceAtLeast(0L)))
+                            else -> if (player.hasNextMediaItem()) player.seekToNextMediaItem() else player.seekTo(0, 0L)
+                        }
+                        return true
+                    }
+                    KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> {
+                        val chDownAction = prefs.getString("wheel_channel_down_action", "PrevChannel") ?: "PrevChannel"
+                        when (chDownAction) {
+                            "NextChannel" -> if (player.hasNextMediaItem()) player.seekToNextMediaItem() else player.seekTo(0, 0L)
+                            "Rewind10" -> player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
+                            else -> if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo((player.mediaItemCount - 1).coerceAtLeast(0), 0L)
                         }
                         return true
                     }

@@ -73,7 +73,9 @@ class EpgRepository(
                 val isGzipped = (b1 == 0x1f && b2 == 0x8b)
 
                 XmlTvParser.parseStreaming(bis, isGzipped) { batch ->
-                    runCatching { epgDao.insertAll(batch) }
+                    batch.chunked(300).forEach { chunk ->
+                        runCatching { epgDao.insertAll(chunk) }
+                    }
                 }
             }
             true

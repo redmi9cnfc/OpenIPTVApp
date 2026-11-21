@@ -12,6 +12,12 @@ interface EpgDao {
     @Query("DELETE FROM epg_programs")
     suspend fun deleteAll()
 
+    @Query("DELETE FROM epg_programs WHERE sourceUrl = :sourceUrl OR LOWER(sourceUrl) = LOWER(:sourceUrl)")
+    suspend fun deleteBySourceUrl(sourceUrl: String)
+
+    @Query("DELETE FROM epg_programs WHERE LOWER(channelId) IN (:channelIds)")
+    suspend fun deleteByChannelIds(channelIds: List<String>)
+
     @Query("SELECT COUNT(*) FROM epg_programs")
     suspend fun getProgramCount(): Int
 

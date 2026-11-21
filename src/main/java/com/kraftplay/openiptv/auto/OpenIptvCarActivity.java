@@ -187,10 +187,80 @@ public class OpenIptvCarActivity extends CarActivity implements
         super.onDestroy();
     }
 
+    private boolean handleSteeringWheelKey(int keyCode) {
+        SharedPreferences prefs = getSharedPreferences("com.kraftplay.openiptv_preferences", MODE_PRIVATE);
+        if (prefs == null) prefs = getSharedPreferences("iptv_prefs", MODE_PRIVATE);
+
+        androidx.media3.exoplayer.ExoPlayer exo = com.kraftplay.openiptv.service.SharedPlayerManager.INSTANCE.getOrCreatePlayer(this, "Standard");
+
+        String nextAction = prefs.getString("wheel_next_action", "NextChannel");
+        String prevAction = prefs.getString("wheel_prev_action", "PrevChannel");
+        String chUpAction = prefs.getString("wheel_channel_up_action", "NextChannel");
+        String chDownAction = prefs.getString("wheel_channel_down_action", "PrevChannel");
+
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_MEDIA_NEXT:
+                executeAction(exo, nextAction);
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
+                executeAction(exo, prevAction);
+                return true;
+            case KeyEvent.KEYCODE_CHANNEL_UP:
+            case KeyEvent.KEYCODE_PAGE_UP:
+                executeAction(exo, chUpAction);
+                return true;
+            case KeyEvent.KEYCODE_CHANNEL_DOWN:
+            case KeyEvent.KEYCODE_PAGE_DOWN:
+                executeAction(exo, chDownAction);
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+            case KeyEvent.KEYCODE_HEADSETHOOK:
+                if (exo.isPlaying()) exo.pause(); else exo.play();
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_PLAY:
+                exo.play();
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_PAUSE:
+                exo.pause();
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                executeAction(exo, "Skip30");
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_REWIND:
+                executeAction(exo, "Rewind30");
+                return true;
+        }
+        return false;
+    }
+
+    private void executeAction(androidx.media3.exoplayer.ExoPlayer exo, String action) {
+        if (exo == null) return;
+        if ("NextChannel".equals(action)) {
+            if (exo.hasNextMediaItem()) exo.seekToNextMediaItem(); else exo.seekTo(0, 0L);
+        } else if ("PrevChannel".equals(action)) {
+            if (exo.hasPreviousMediaItem()) exo.seekToPreviousMediaItem(); else exo.seekTo(Math.max(0, exo.getMediaItemCount() - 1), 0L);
+        } else if ("Skip10".equals(action)) {
+            exo.seekTo(Math.min(exo.getDuration() > 0 ? exo.getDuration() : Long.MAX_VALUE, exo.getCurrentPosition() + 10000L));
+        } else if ("Skip30".equals(action)) {
+            exo.seekTo(Math.min(exo.getDuration() > 0 ? exo.getDuration() : Long.MAX_VALUE, exo.getCurrentPosition() + 30000L));
+        } else if ("Skip60".equals(action)) {
+            exo.seekTo(Math.min(exo.getDuration() > 0 ? exo.getDuration() : Long.MAX_VALUE, exo.getCurrentPosition() + 60000L));
+        } else if ("Rewind10".equals(action)) {
+            exo.seekTo(Math.max(0L, exo.getCurrentPosition() - 10000L));
+        } else if ("Rewind30".equals(action)) {
+            exo.seekTo(Math.max(0L, exo.getCurrentPosition() - 30000L));
+        } else if ("Rewind60".equals(action)) {
+            exo.seekTo(Math.max(0L, exo.getCurrentPosition() - 60000L));
+        }
+    }
+
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             backDispatcher.onBackPressed();
+            return true;
+        }
+        if (handleSteeringWheelKey(keyCode)) {
             return true;
         }
         return super.onKeyDown(keyCode, event);

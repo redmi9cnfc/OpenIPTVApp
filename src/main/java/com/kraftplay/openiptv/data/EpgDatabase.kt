@@ -6,7 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.kraftplay.openiptv.model.EpgProgram
 
-@Database(entities = [EpgProgram::class], version = 1, exportSchema = false)
+@Database(entities = [EpgProgram::class], version = 2, exportSchema = false)
 abstract class EpgDatabase : RoomDatabase() {
     abstract fun epgDao(): EpgDao
 
@@ -27,7 +27,9 @@ abstract class EpgDatabase : RoomDatabase() {
                     context.applicationContext,
                     EpgDatabase::class.java,
                     "epg_database"
-                ).build()
+                )
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 instance
             }

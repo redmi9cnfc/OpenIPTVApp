@@ -119,6 +119,7 @@ fun SettingsScreen(
     val autoStartLast by viewModel.autoStartLast.collectAsState()
     val forceLandscape by viewModel.forceLandscape.collectAsState()
     val backgroundPlayback by viewModel.backgroundPlayback.collectAsState()
+    val autoFallbackStreams by viewModel.autoFallbackStreams.collectAsState()
     val carFullscreenMode by viewModel.carFullscreenMode.collectAsState()
     val autoHideTimeout by viewModel.autoHideTimeout.collectAsState()
     val bufferingLevel by viewModel.bufferingLevel.collectAsState()
@@ -152,6 +153,8 @@ fun SettingsScreen(
     val wheelPrevAction by viewModel.wheelPrevAction.collectAsState()
     val wheelChannelUpAction by viewModel.wheelChannelUpAction.collectAsState()
     val wheelChannelDownAction by viewModel.wheelChannelDownAction.collectAsState()
+    val wheelPlayPauseAction by viewModel.wheelPlayPauseAction.collectAsState()
+    val carAutostartEnabled by viewModel.carAutostartEnabled.collectAsState()
 
     val isEpgLoading by viewModel.isEpgLoading.collectAsState()
     val epgStatus by viewModel.epgStatus.collectAsState()
@@ -277,12 +280,12 @@ fun SettingsScreen(
             )
         }
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .padding(paddingValues)
-                .fillMaxSize()
-                .padding(horizontal = 16.dp)
-        ) {
+        Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+            ) {
             // Top Search Input
             SettingsSearch(
                 query = searchQuery,
@@ -972,6 +975,17 @@ fun SettingsScreen(
                                             rotationEnabled = iconRotationEnabled
                                         )
 
+                                        ToggleItem(
+                                            icon = Icons.Rounded.AltRoute,
+                                            title = "Автопереключение на резервные зеркала",
+                                            subtitle = "При сбое видеопотока автоматически искать рабочее зеркало в других плейлистах",
+                                            checked = autoFallbackStreams,
+                                            onCheckedChange = { viewModel.updateSetting("auto_fallback_streams", it) },
+                                            shapeName = badgeShape,
+                                            badgeColorName = badgeColor,
+                                            rotationEnabled = iconRotationEnabled
+                                        )
+
                                         ChoiceItem(
                                             icon = Icons.Rounded.Speed,
                                             title = "Буферизация",
@@ -1198,6 +1212,22 @@ fun SettingsScreen(
                                             badgeColorName = badgeColor,
                                             rotationEnabled = iconRotationEnabled
                                         )
+
+                                        ChoiceItem(
+                                            icon = Icons.Rounded.PlayArrow,
+                                            title = "Кнопка «Пауза / Плей» (Play/Pause)",
+                                            subtitle = "Действие при нажатии кнопки Play/Pause на руле",
+                                            options = listOf(
+                                                "PlayPause" to "Воспроизведение / Пауза",
+                                                "Mute" to "Вкл / Выкл звук",
+                                                "Reload" to "Перезапустить поток"
+                                            ),
+                                            selected = wheelPlayPauseAction,
+                                            onSelect = { viewModel.updateSetting("wheel_play_pause_action", it) },
+                                            shapeName = badgeShape,
+                                            badgeColorName = badgeColor,
+                                            rotationEnabled = iconRotationEnabled
+                                        )
                                     }
                                 }
 
@@ -1218,8 +1248,8 @@ fun SettingsScreen(
                                             icon = Icons.Rounded.PlayArrow,
                                             title = "Автозапуск в авто",
                                             subtitle = "Автоматически воспроизводить последний канал при подключении к автомобилю",
-                                            checked = autoStartLast,
-                                            onCheckedChange = { viewModel.updateSetting("auto_start_last", it) },
+                                            checked = carAutostartEnabled,
+                                            onCheckedChange = { viewModel.updateSetting("car_autostart_enabled", it) },
                                             shapeName = badgeShape,
                                             badgeColorName = badgeColor,
                                             rotationEnabled = iconRotationEnabled
@@ -1578,7 +1608,7 @@ fun SettingsScreen(
 
             if (showPasswordPrompt != null) {
                 val target = showPasswordPrompt!!
-                AlertDialog(
+                InPageDialog(
                     onDismissRequest = { showPasswordPrompt = null },
                     title = { Text(tr("Введите пароль")) },
                     text = {
@@ -1616,7 +1646,7 @@ fun SettingsScreen(
             }
 
             if (showCustomUiDialog) {
-                AlertDialog(
+                InPageDialog(
                     onDismissRequest = { showCustomUiDialog = false },
                     title = { Text(tr("Редактировать тему JSON")) },
                     text = {
@@ -1658,7 +1688,7 @@ fun SettingsScreen(
             }
 
             if (showCategoryDialog) {
-                AlertDialog(
+                InPageDialog(
                     onDismissRequest = { showCategoryDialog = false },
                     title = { Text(tr("Управление категориями")) },
                     text = {
@@ -1692,7 +1722,7 @@ fun SettingsScreen(
                         it.url.orEmpty().contains(query, ignoreCase = true)
                     }
                 }
-                AlertDialog(
+                InPageDialog(
                     onDismissRequest = { showChannelDialog = false },
                     title = { Text(tr("Управление каналами")) },
                     text = {
@@ -1722,7 +1752,7 @@ fun SettingsScreen(
             }
 
             if (showImportDialog) {
-                AlertDialog(
+                InPageDialog(
                     onDismissRequest = { showImportDialog = false },
                     title = { Text(tr("Импорт настроек")) },
                     text = {
@@ -1777,7 +1807,7 @@ fun SettingsScreen(
             }
 
             pendingUpdate?.let { update ->
-                AlertDialog(
+                InPageDialog(
                     onDismissRequest = { pendingUpdate = null },
                     shape = RoundedCornerShape(28.dp),
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1874,6 +1904,7 @@ fun SettingsScreen(
             }
         }
     }
+}
 }
 
 @Composable
@@ -2016,7 +2047,7 @@ fun ItemSettingsDialog(
         "Off" to "Выкл"
     )
 
-    AlertDialog(
+    InPageDialog(
         onDismissRequest = onDismiss,
         title = { Text(title, fontWeight = FontWeight.Bold) },
         text = {
@@ -2096,81 +2127,28 @@ fun AddDialog(
     onConfirm: () -> Unit,
     isAuto: Boolean = false
 ) {
-    if (isAuto) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.75f))
-                .clickable(onClick = onDismiss),
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .padding(16.dp)
-                    .clickable(enabled = false, onClick = {}),
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 8.dp
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(12.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = name,
-                            onValueChange = onName,
-                            label = { Text(tr("Имя")) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = url,
-                            onValueChange = onUrl,
-                            label = { Text(tr("URL адрес")) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    Spacer(Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TextButton(onClick = onDismiss) { Text(tr("Отмена")) }
-                        Spacer(Modifier.width(8.dp))
-                        Button(onClick = onConfirm) { Text(tr("Добавить плейлист")) }
-                    }
-                }
+    InPageDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = onName,
+                    label = { Text(tr("Имя")) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = onUrl,
+                    label = { Text(tr("URL адрес")) },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
-        }
-    } else {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text(title) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = onName,
-                        label = { Text(tr("Имя")) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = url,
-                        onValueChange = onUrl,
-                        label = { Text(tr("URL адрес")) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(onClick = onConfirm) { Text(tr("Добавить плейлист")) }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismiss) { Text(tr("Отмена")) }
-            }
-        )
-    }
+        },
+        confirmButton = { Button(onClick = onConfirm) { Text(tr("Добавить плейлист")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Отмена")) } }
+    )
 }
 
 private fun openExternalLink(context: Context, url: String) {

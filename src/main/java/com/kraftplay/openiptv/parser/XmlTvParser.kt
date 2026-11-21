@@ -19,6 +19,7 @@ object XmlTvParser {
         isGzipped: Boolean = false,
         cutoffTime: Long = 0L,
         futureLimit: Long = Long.MAX_VALUE,
+        sourceUrl: String? = null,
         onChannelNamesParsed: (suspend (Map<String, List<String>>) -> Unit)? = null,
         onBatchReady: suspend (List<EpgProgram>) -> Unit
     ) {
@@ -111,7 +112,8 @@ object XmlTvParser {
                                         endTime = endTime,
                                         description = desc.ifBlank { null }?.trim(),
                                         category = category.ifBlank { null }?.trim(),
-                                        iconUrl = icon.ifBlank { null }?.trim()
+                                        iconUrl = icon.ifBlank { null }?.trim(),
+                                        sourceUrl = sourceUrl
                                     )
                                 )
                                 if (batch.size >= maxBatchSize) {

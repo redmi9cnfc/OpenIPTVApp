@@ -92,32 +92,101 @@ fun WifiTransferDialog(viewModel: MainViewModel, onDismiss: () -> Unit) {
             .onFailure { status = context.getString(R.string.wifi_dialog_discovery_error, it.localizedMessage ?: "") }
     }
 
+    var qrScanInput by remember { mutableStateOf("") }
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+
     DisposableEffect(Unit) { onDispose { cleanup() } }
 
-    AlertDialog(
+    InPageDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.wifi_dialog_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 when (mode) {
                     "choose" -> {
-                        Text(stringResource(R.string.wifi_dialog_same_network))
-                        Button(onClick = { startDiscovery() }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Send, null); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.wifi_dialog_send_choose))
+                        Text("Передача плейлистов, EPG и ВСЕХ настроек приложения:")
+                        Button(onClick = { mode = "show_qr" }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Send, null); Spacer(Modifier.width(8.dp)); Text("Показать мой QR-код")
+                        }
+                        OutlinedButton(onClick = { mode = "scan_qr" }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Download, null); Spacer(Modifier.width(8.dp)); Text("Сканировать / Импортировать QR-код")
+                        }
+                        OutlinedButton(onClick = { startDiscovery() }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Wifi, null); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.wifi_dialog_send_choose))
                         }
                         OutlinedButton(onClick = { startReceiver() }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Download, null); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.wifi_dialog_receive_this))
+                            Icon(Icons.Default.Devices, null); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.wifi_dialog_receive_this))
                         }
                     }
-                    "receive" -> {
-                        Icon(Icons.Default.Wifi, null, modifier = Modifier.align(Alignment.CenterHorizontally).size(36.dp))
-                        Text(status)
-                        Text(stringResource(R.string.wifi_dialog_keep_open), style = MaterialTheme.typography.bodySmall)
+                    "show_qr", "receive" -> {
+                        val transferData = remember(viewModel) { viewModel.exportWifiTransferJson() }
+                        val qrImage = remember(transferData) { com.kraftplay.openiptv.util.QrCodeGenerator.generateQrBitmap(transferData, 360, 360) }
+
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            androidx.compose.foundation.Image(
+                                bitmap = qrImage,
+                                contentDescription = "QR Code Sync",
+                                modifier = Modifier.size(190.dp)
+                            )
+                            Text("Покажите этот QR-код второму устройству для передачи ВСЕХ плейлистов, EPG и настроек", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            OutlinedButton(onClick = { mode = "scan_qr" }) {
+                                Icon(Icons.Default.Download, null); Spacer(Modifier.width(6.dp)); Text("Переключить на Импорт / Сканирование QR")
+                            }
+                        }
+                    }
+                    "scan_qr" -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text("Вставьте текст QR-кода / JSON дампа со второго устройства:")
+                            OutlinedTextField(
+                                value = qrScanInput,
+                                onValueChange = { qrScanInput = it },
+                                placeholder = { Text("Нажмите 'Из буфера' или вставьте текст QR-кода") },
+                                modifier = Modifier.fillMaxWidth().height(100.dp)
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = {
+                                        val clip = clipboardManager.getText()?.text
+                                        if (!clip.isNullOrBlank()) {
+                                            qrScanInput = clip
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Из буфера")
+                                }
+                                Button(
+                                    onClick = {
+                                        if (qrScanInput.isNotBlank()) {
+                                            busy = true
+                                            scope.launch {
+                                                val success = viewModel.importBackupJson(qrScanInput)
+                                                status = if (success) "ВСЕ плейлисты, EPG и настройки успешно применены!" else "Ошибка импорта данных QR"
+                                                busy = false
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Применить")
+                                }
+                            }
+                            if (status.isNotBlank()) {
+                                Text(status, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                            }
+                            OutlinedButton(onClick = { mode = "show_qr" }, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Default.Send, null); Spacer(Modifier.width(6.dp)); Text("Переключить на Показать мой QR")
+                            }
+                        }
                     }
                     "send" -> {
                         Text(status)
                         if (devices.isEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
-                        LazyColumn(modifier = Modifier.heightIn(max = 260.dp)) {
+                        LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
                             items(devices.toList(), key = { it.serviceName }) { device ->
                                 ListItem(
                                     headlineContent = { Text(device.serviceName.removePrefix("OpenIPTV-")) },

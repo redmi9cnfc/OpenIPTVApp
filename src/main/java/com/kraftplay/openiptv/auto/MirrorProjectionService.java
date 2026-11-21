@@ -23,49 +23,51 @@ import com.kraftplay.openiptv.R;
 
 public class MirrorProjectionService extends Service {
 
-    public interface OnProjectionReadyListener {
-        void onReady(@Nullable MediaProjection mediaProjection);
+    public interface ProjectionCallback {
+        void onProjectionReady(MediaProjection mediaProjection);
     }
 
-    private static final String CHANNEL_ID = "openiptv_mirror_fg";
-    private static final int NOTIF_ID = 7741;
+    private static final String CHANNEL_ID = "openiptv_mirror_channel";
+    private static final int NOTIF_ID = 2024;
 
-    public static volatile MediaProjection mediaProjection = null;
-    private static volatile OnProjectionReadyListener pendingListener = null;
-    private static volatile boolean isRequesting = false;
+    public static MediaProjection mediaProjection = null;
+    private static ProjectionCallback pendingCallback = null;
 
-    public static void requestProjection(Context context, OnProjectionReadyListener listener) {
-        if (mediaProjection != null) {
-            if (listener != null) listener.onReady(mediaProjection);
-            return;
+    private PowerManager.WakeLock wakeLock = null;
+
+    private final MediaProjection.Callback projectionCallback = new MediaProjection.Callback() {
+        @Override
+        public void onStop() {
+            super.onStop();
+            mediaProjection = null;
+            if (wakeLock != null && wakeLock.isHeld()) {
+                try { wakeLock.release(); } catch (Throwable ignored) {}
+            }
+            wakeLock = null;
         }
-        pendingListener = listener;
-        if (isRequesting) return;
-        isRequesting = true;
+    };
 
-        Intent intent = new Intent(context, MirrorProjectionActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        context.startActivity(intent);
+    public static void requestProjection(Context context, ProjectionCallback callback) {
+        if (mediaProjection != null) {
+            callback.onProjectionReady(mediaProjection);
+        } else {
+            pendingCallback = callback;
+            Intent intent = new Intent(context, MirrorProjectionActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+        }
     }
 
     public static void onPermissionResult(Context context, int resultCode, Intent data) {
-        isRequesting = false;
-        if (data == null) {
-            if (pendingListener != null) {
-                pendingListener.onReady(null);
-                pendingListener = null;
+        if (resultCode == Activity.RESULT_OK && data != null) {
+            Intent intent = new Intent(context, MirrorProjectionService.class);
+            intent.putExtra("resultCode", resultCode);
+            intent.putExtra("data", data);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent);
+            } else {
+                context.startService(intent);
             }
-            return;
-        }
-
-        Intent serviceIntent = new Intent(context, MirrorProjectionService.class);
-        serviceIntent.putExtra("resultCode", resultCode);
-        serviceIntent.putExtra("data", data);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(serviceIntent);
-        } else {
-            context.startService(serviceIntent);
         }
     }
 
@@ -73,59 +75,49 @@ public class MirrorProjectionService extends Service {
         try {
             if (mediaProjection != null) {
                 mediaProjection.stop();
+                mediaProjection = null;
             }
         } catch (Throwable ignored) {}
-        mediaProjection = null;
-        pendingListener = null;
-        isRequesting = false;
-        context.stopService(new Intent(context, MirrorProjectionService.class));
+        try {
+            Intent intent = new Intent(context, MirrorProjectionService.class);
+            context.stopService(intent);
+        } catch (Throwable ignored) {}
     }
-
-    private PowerManager.WakeLock wakeLock = null;
-
-    private final MediaProjection.Callback projectionCallback = new MediaProjection.Callback() {
-        @Override
-        public void onStop() {
-            mediaProjection = null;
-            stopSelf();
-        }
-    };
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        int resultCode = intent != null ? intent.getIntExtra("resultCode", Activity.RESULT_CANCELED) : Activity.RESULT_CANCELED;
-        Intent data = null;
         if (intent != null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                data = intent.getParcelableExtra("data", Intent.class);
-            } else {
-                data = intent.getParcelableExtra("data");
-            }
-        }
+            int resultCode = intent.getIntExtra("resultCode", 0);
+            Intent data = intent.getParcelableExtra("data");
 
-        if (data != null && mediaProjection == null) {
-            MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
-            if (mgr != null) {
-                MediaProjection mp = mgr.getMediaProjection(resultCode, data);
-                if (mp != null) {
-                    mp.registerCallback(projectionCallback, new Handler(Looper.getMainLooper()));
-                    mediaProjection = mp;
-                    if (pendingListener != null) {
-                        pendingListener.onReady(mp);
-                        pendingListener = null;
+            if (resultCode != 0 && data != null) {
+                startForegroundNotification();
+                acquireScreenWakeLock();
+
+                MediaProjectionManager mpm = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+                if (mpm != null) {
+                    try {
+                        mediaProjection = mpm.getMediaProjection(resultCode, data);
+                        if (mediaProjection != null) {
+                            mediaProjection.registerCallback(projectionCallback, new Handler(Looper.getMainLooper()));
+                            if (pendingCallback != null) {
+                                ProjectionCallback cb = pendingCallback;
+                                pendingCallback = null;
+                                cb.onProjectionReady(mediaProjection);
+                            }
+                        }
+                    } catch (Throwable t) {
+                        t.printStackTrace();
                     }
                 }
             }
         }
-
-        startAsForeground();
-        acquireScreenWakeLock();
-        return START_NOT_STICKY;
+        return START_STICKY;
     }
 
-    private void startAsForeground() {
+    private void startForegroundNotification() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationManager nm = getSystemService(NotificationManager.class);
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) {
                 NotificationChannel channel = new NotificationChannel(
                         CHANNEL_ID,
@@ -137,11 +129,12 @@ public class MirrorProjectionService extends Service {
         }
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("OpenIPTV Mirror")
-                .setContentText("Трансляция экрана на дисплей автомобиля")
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setOngoing(true)
-                .build();
+            .setContentTitle("OpenMirror")
+            .setContentText("Трансляция экрана на магнитолу")
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -154,16 +147,15 @@ public class MirrorProjectionService extends Service {
         }
     }
 
-    @SuppressWarnings("deprecation")
     private void acquireScreenWakeLock() {
         if (wakeLock != null && wakeLock.isHeld()) return;
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (pm != null) {
             wakeLock = pm.newWakeLock(
-                    PowerManager.SCREEN_DIM_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                    PowerManager.PARTIAL_WAKE_LOCK,
                     "OpenIPTV:MirrorWakeLock"
             );
-            wakeLock.acquire(12 * 3600 * 1000L);
+            wakeLock.acquire(10 * 60 * 1000L);
         }
     }
 

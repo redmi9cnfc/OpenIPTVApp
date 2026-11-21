@@ -12,6 +12,7 @@ import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.View;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.appcompat.R;
 import androidx.car.app.AppManager;
@@ -24,6 +25,7 @@ import androidx.car.app.SurfaceCallback;
 import androidx.car.app.SurfaceContainer;
 import androidx.car.app.model.Action;
 import androidx.car.app.model.ActionStrip;
+import androidx.car.app.model.CarIcon;
 import androidx.car.app.model.Template;
 import androidx.car.app.navigation.model.NavigationTemplate;
 import androidx.car.app.validation.HostValidator;
@@ -62,11 +64,37 @@ public class OpenIptvCarServiceFS extends CarAppService {
         private int surfaceDensity = 160;
         private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+        private boolean isDragging = false;
+        private float currentDragX = 0f;
+        private float currentDragY = 0f;
+        private long dragStartTime = 0;
+
+        private Runnable pendingClickRunnable = null;
+        private final Runnable endDragRunnable = this::endDrag;
+
         public OpenIptvCarNavScreen(@NonNull CarContext carContext) {
             super(carContext);
             try {
                 carContext.getCarService(AppManager.class).setSurfaceCallback(this);
             } catch (Throwable ignored) {}
+
+            try {
+                carContext.getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+                    @Override
+                    public void handleOnBackPressed() {
+                        exitApp();
+                    }
+                });
+            } catch (Throwable ignored) {}
+        }
+
+        private void exitApp() {
+            mainHandler.post(() -> {
+                releaseVirtualDisplay();
+                try {
+                    getCarContext().finishCarApp();
+                } catch (Throwable ignored) {}
+            });
         }
 
         @Override
@@ -109,6 +137,8 @@ public class OpenIptvCarServiceFS extends CarAppService {
         }
 
         private void releaseVirtualDisplay() {
+            cancelPendingClick();
+            endDrag();
             if (presentation != null) {
                 try {
                     presentation.dismiss();
@@ -129,62 +159,115 @@ public class OpenIptvCarServiceFS extends CarAppService {
             mainHandler.post(this::releaseVirtualDisplay);
         }
 
+        private void cancelPendingClick() {
+            if (pendingClickRunnable != null) {
+                mainHandler.removeCallbacks(pendingClickRunnable);
+                pendingClickRunnable = null;
+            }
+        }
+
+        private void endDrag() {
+            if (isDragging) {
+                isDragging = false;
+                mainHandler.removeCallbacks(endDragRunnable);
+                if (presentation != null && presentation.getWindow() != null) {
+                    long now = SystemClock.uptimeMillis();
+                    MotionEvent up = MotionEvent.obtain(dragStartTime, now, MotionEvent.ACTION_UP, currentDragX, currentDragY, 0);
+                    View decor = presentation.getWindow().getDecorView();
+                    if (decor != null) {
+                        decor.dispatchTouchEvent(up);
+                    }
+                    up.recycle();
+                }
+            }
+        }
+
         @Override
         public void onClick(float x, float y) {
             mainHandler.post(() -> {
-                if (presentation != null && presentation.getWindow() != null) {
-                    long now = SystemClock.uptimeMillis();
-                    MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0);
-                    MotionEvent up = MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_UP, x, y, 0);
-                    View decor = presentation.getWindow().getDecorView();
-                    decor.dispatchTouchEvent(down);
-                    decor.dispatchTouchEvent(up);
-                    down.recycle();
-                    up.recycle();
-                }
+                if (isDragging) return;
+                cancelPendingClick();
+
+                pendingClickRunnable = () -> {
+                    pendingClickRunnable = null;
+                    if (isDragging) return;
+                    if (presentation != null && presentation.getWindow() != null) {
+                        long now = SystemClock.uptimeMillis();
+                        MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0);
+                        MotionEvent up = MotionEvent.obtain(now, now + 40, MotionEvent.ACTION_UP, x, y, 0);
+                        View decor = presentation.getWindow().getDecorView();
+                        if (decor != null) {
+                            decor.dispatchTouchEvent(down);
+                            decor.dispatchTouchEvent(up);
+                        }
+                        down.recycle();
+                        up.recycle();
+                    }
+                };
+                mainHandler.postDelayed(pendingClickRunnable, 75);
             });
         }
 
         @Override
         public void onScroll(float distanceX, float distanceY) {
             mainHandler.post(() -> {
-                if (presentation != null && presentation.getWindow() != null) {
-                    long now = SystemClock.uptimeMillis();
-                    float scale = 0.55f;
-                    float dx = distanceX * scale;
-                    float dy = distanceY * scale;
+                cancelPendingClick();
+                if (presentation == null || presentation.getWindow() == null) return;
 
-                    float startX = surfaceWidth / 2f;
-                    float startY = surfaceHeight / 2f;
-                    float endX = startX - dx;
-                    float endY = startY - dy;
+                mainHandler.removeCallbacks(endDragRunnable);
+                long now = SystemClock.uptimeMillis();
 
-                    MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, startX, startY, 0);
-                    MotionEvent move = MotionEvent.obtain(now, now + 15, MotionEvent.ACTION_MOVE, endX, endY, 0);
-                    MotionEvent up = MotionEvent.obtain(now, now + 30, MotionEvent.ACTION_UP, endX, endY, 0);
+                float scale = 0.8f;
+                float stepX = distanceX * scale;
+                float stepY = distanceY * scale;
 
+                if (!isDragging) {
+                    isDragging = true;
+                    dragStartTime = now;
+                    currentDragX = surfaceWidth / 2f;
+                    currentDragY = surfaceHeight / 2f;
+
+                    MotionEvent down = MotionEvent.obtain(dragStartTime, now, MotionEvent.ACTION_DOWN, currentDragX, currentDragY, 0);
                     View decor = presentation.getWindow().getDecorView();
-                    decor.dispatchTouchEvent(down);
-                    decor.dispatchTouchEvent(move);
-                    decor.dispatchTouchEvent(up);
-
+                    if (decor != null) {
+                        decor.dispatchTouchEvent(down);
+                    }
                     down.recycle();
-                    move.recycle();
-                    up.recycle();
                 }
+
+                currentDragX = Math.max(10f, Math.min(surfaceWidth - 10f, currentDragX - stepX));
+                currentDragY = Math.max(10f, Math.min(surfaceHeight - 10f, currentDragY - stepY));
+
+                MotionEvent move = MotionEvent.obtain(dragStartTime, now, MotionEvent.ACTION_MOVE, currentDragX, currentDragY, 0);
+                View decor = presentation.getWindow().getDecorView();
+                if (decor != null) {
+                    decor.dispatchTouchEvent(move);
+                }
+                move.recycle();
+
+                mainHandler.postDelayed(endDragRunnable, 120);
             });
         }
 
         @Override
         public void onFling(float velocityX, float velocityY) {
-            onScroll(-velocityX / 15f, -velocityY / 15f);
+            mainHandler.post(() -> {
+                cancelPendingClick();
+                if (presentation == null || presentation.getWindow() == null) return;
+                onScroll(-velocityX / 18f, -velocityY / 18f);
+            });
         }
 
         @NonNull
         @Override
         public Template onGetTemplate() {
+            Action backAction = new Action.Builder()
+                    .setIcon(CarIcon.BACK)
+                    .setOnClickListener(this::exitApp)
+                    .build();
+
             ActionStrip strip = new ActionStrip.Builder()
-                    .addAction(Action.BACK)
+                    .addAction(backAction)
                     .build();
 
             ActionStrip mapStrip = new ActionStrip.Builder()

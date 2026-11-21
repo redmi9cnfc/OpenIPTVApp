@@ -212,8 +212,9 @@ fun OpenIptvRootContent(
 
     LanguageContextWrapper(language = language, resultRegistryOwner = resultRegistryOwner) {
         val context = LocalContext.current
-        MaterialTheme(colorScheme = colorScheme) {
-            val navController = rememberNavController()
+        androidx.compose.runtime.CompositionLocalProvider(com.kraftplay.openiptv.ui.LocalIsAuto provides isAuto) {
+            MaterialTheme(colorScheme = colorScheme) {
+                val navController = rememberNavController()
             var lastBackPressTime by remember { mutableStateOf(0L) }
 
             LaunchedEffect(autoPlayUrl) {
@@ -261,6 +262,7 @@ fun OpenIptvRootContent(
             }
         }
     }
+}
 }
 
 private fun parseHexColor(hex: String, defaultColor: Color): Color {
@@ -337,7 +339,12 @@ fun OpenIptvApp(
                 onYouTubeClick = { navController.navigate("youtube") },
                 onRuTubeClick = { navController.navigate("rutube") },
                 onBrowserClick = { navController.navigate("browser") },
-                onPrismaClick = { navController.navigate("prisma") }
+                onMsxClick = {
+                    val rawUrl = viewModel.msxStartUrl.value.ifBlank { "http://msx.benzac.de" }
+                    val finalUrl = if (rawUrl.startsWith("http://", ignoreCase = true) || rawUrl.startsWith("https://", ignoreCase = true)) rawUrl else "http://$rawUrl"
+                    val encoded = runCatching { URLEncoder.encode(finalUrl, StandardCharsets.UTF_8.toString()) }.getOrDefault(finalUrl)
+                    navController.navigate("browser_url/$encoded")
+                }
             )
         }
         composable("youtube") {
@@ -359,10 +366,26 @@ fun OpenIptvApp(
                 onBack = { navController.popBackStack() }
             )
         }
-        composable("prisma") {
+        composable("msx") {
             onPlayingStateChanged(true)
+            com.kraftplay.openiptv.ui.MsxScreen(
+                viewModel = viewModel,
+                onLaunchUrl = { targetUrl ->
+                    val encoded = runCatching { URLEncoder.encode(targetUrl, StandardCharsets.UTF_8.toString()) }.getOrDefault(targetUrl)
+                    navController.navigate("browser_url/$encoded")
+                },
+                onBack = { navController.popBackStack() },
+                isAuto = isAuto
+            )
+        }
+        composable(
+            route = "browser_url/{url}",
+            arguments = listOf(navArgument("url") { type = NavType.StringType })
+        ) { backStackEntry ->
+            onPlayingStateChanged(true)
+            val url = backStackEntry.arguments?.getString("url") ?: "https://google.com"
             com.kraftplay.openiptv.ui.BrowserScreen(
-                initialUrl = "https://prisma.ws/",
+                initialUrl = url,
                 onBack = { navController.popBackStack() }
             )
         }

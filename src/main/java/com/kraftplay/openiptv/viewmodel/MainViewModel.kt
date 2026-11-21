@@ -113,12 +113,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _playlists = MutableStateFlow(
         run {
             val loaded = loadPlaylistsFromPrefs()
-            if (loaded.isEmpty()) {
+            val hasInit = prefs.getBoolean("has_initialized_playlists", false)
+            if (!hasInit && loaded.isEmpty()) {
+                prefs.edit().putBoolean("has_initialized_playlists", true).apply()
                 defaultPlaylists
             } else {
-                val existingUrls = loaded.map { it.url.lowercase().trim() }.toSet()
-                val missingDefaults = defaultPlaylists.filter { it.url.lowercase().trim() !in existingUrls }
-                loaded + missingDefaults
+                loaded
             }
         }
     )
@@ -164,7 +164,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val hiddenChannels: StateFlow<Set<String>> = _hiddenChannels
     val channelManagementList: StateFlow<List<IptvChannel>> = _rawChannels
 
-    private val _epgSources = MutableStateFlow<List<EpgSource>>(loadEpgSourcesFromPrefs())
+    private val defaultEpgSources = listOf(
+        EpgSource(
+            id = "default-epg-1",
+            name = "Основной EPG (epg.it999.ru)",
+            url = "https://epg.it999.ru/epg2.xml.gz",
+            enabled = true,
+            autoUpdateInterval = "On launch"
+        )
+    )
+
+    private val _epgSources = MutableStateFlow<List<EpgSource>>(
+        run {
+            val loaded = loadEpgSourcesFromPrefs()
+            val hasInit = prefs.getBoolean("has_initialized_epg_sources", false)
+            if (!hasInit && loaded.isEmpty()) {
+                prefs.edit().putBoolean("has_initialized_epg_sources", true).apply()
+                defaultEpgSources
+            } else {
+                loaded
+            }
+        }
+    )
     val epgSources: StateFlow<List<EpgSource>> = _epgSources
 
     private var epgDataMap: Map<String, List<EpgProgram>> = emptyMap()
@@ -228,6 +249,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val cardBadgeStyle = MutableStateFlow(prefs.getString("card_badge_style", "Floating Pill") ?: "Floating Pill")
 
     val autoStartLast = MutableStateFlow(prefs.getBoolean("auto_start_last", false))
+    val autoFallbackStreams = MutableStateFlow(prefs.getBoolean("auto_fallback_streams", false))
     val lastChannelUrl = MutableStateFlow(prefs.getString("last_channel_url", "") ?: "")
     val forceLandscape = MutableStateFlow(prefs.getBoolean("force_landscape", false))
     val backgroundPlayback = MutableStateFlow(prefs.getBoolean("background_playback", false))
@@ -248,28 +270,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playbackSpeed = MutableStateFlow(1.0f)
     val audioVolumeBoost = MutableStateFlow(1.0f)
 
+    val msxStartUrl = MutableStateFlow(
+        run {
+            val s = prefs.getString("msx_start_url", null)
+            if (s.isNullOrBlank()) "http://msx.benzac.de" else s
+        }
+    )
     val iconRotationEnabled = MutableStateFlow(prefs.getBoolean("icon_rotation_enabled", false))
     val wheelNextAction = MutableStateFlow(prefs.getString("wheel_next_action", "NextChannel") ?: "NextChannel")
     val wheelPrevAction = MutableStateFlow(prefs.getString("wheel_prev_action", "PrevChannel") ?: "PrevChannel")
     val wheelChannelUpAction = MutableStateFlow(prefs.getString("wheel_channel_up_action", "NextChannel") ?: "NextChannel")
     val wheelChannelDownAction = MutableStateFlow(prefs.getString("wheel_channel_down_action", "PrevChannel") ?: "PrevChannel")
+    val wheelPlayPauseAction = MutableStateFlow(prefs.getString("wheel_play_pause_action", "PlayPause") ?: "PlayPause")
+    val carAutostartEnabled = MutableStateFlow(prefs.getBoolean("car_autostart_enabled", false))
     val lockedFolders = MutableStateFlow<Map<String, String>>(loadLockedFoldersFromPrefs())
     val customCategoryOrder = MutableStateFlow<List<String>>(loadCustomCategoryOrderFromPrefs())
     val customChannelOrder = MutableStateFlow<List<String>>(loadCustomChannelOrderFromPrefs())
 
     val categories: StateFlow<List<String>> = combine(_rawChannels, groupSortOrder, _hiddenCategories, customCategoryOrder) { channels, sortOrder, hidden, customOrder ->
-        val cats = channels.mapNotNull { it.category }.filter { it.isNotEmpty() && !it.equals("Prisma", true) }.distinct()
+        val cats = channels.mapNotNull { it.category }.filter { it.isNotEmpty() && !it.equals("MSX", true) && !it.equals("Prisma", true) }.distinct()
         val orderMap = customOrder.withIndex().associate { it.value to it.index }
         val sortedCats = if (sortOrder == "Alphabetical") cats.sorted() else cats.sortedBy { orderMap[it] ?: Int.MAX_VALUE }
-        listOf("All", "Favorites", "Recent", "Prisma") + sortedCats
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("All", "Favorites", "Recent", "Prisma"))
+        listOf("All", "Favorites", "Recent", "MSX") + sortedCats
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("All", "Favorites", "Recent", "MSX"))
 
     val categoryChannelCounts: StateFlow<Map<String, Int>> = combine(_rawChannels, _favorites, _recentChannels) { channels, favs, recents ->
         val counts = mutableMapOf<String, Int>()
         counts["All"] = channels.size
         counts["Favorites"] = channels.count { favs.contains(it.url) }
         counts["Recent"] = recents.size
-        counts["Prisma"] = 1
+        counts["MSX"] = 1
         channels.forEach { channel ->
             val cat = channel.category
             if (!cat.isNullOrEmpty()) {
@@ -903,8 +933,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val epgNow = System.currentTimeMillis()
-                val cutoffTime = epgNow - 30L * 24L * 60L * 60L * 1000L
-                val futureLimit = epgNow + 30L * 24L * 60L * 60L * 1000L
+                val cutoffTime = epgNow - 24L * 60L * 60L * 1000L
+                val futureLimit = epgNow + 7L * 24L * 60L * 60L * 1000L
                 
                 try {
                     epgDao.pruneWindow(cutoffTime, futureLimit)
@@ -918,6 +948,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val finalUrl = if (!rawUrl.startsWith("http://", true) && !rawUrl.startsWith("https://", true)) {
                         "http://$rawUrl"
                     } else rawUrl
+
+                    runCatching {
+                        epgDao.deleteBySourceUrl(source.url)
+                        epgDao.deleteBySourceUrl(finalUrl)
+                        epgDao.deleteBySourceUrl(rawUrl)
+                    }
 
                     try {
                         val request = Request.Builder()
@@ -981,6 +1017,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 var parsedCount = 0
                                 XmlTvParser.parseStreaming(
                                     bis, isGzipped, cutoffTime, futureLimit,
+                                    sourceUrl = source.url,
                                     onChannelNamesParsed = { namesMap ->
                                         xmlTvChannelNamesMap.putAll(namesMap)
                                         saveXmlTvChannelNamesToPrefs()
@@ -1002,7 +1039,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val now = System.currentTimeMillis()
-                runCatching { epgDao.pruneWindow(now - 30L * 24L * 60L * 60L * 1000L, now + 30L * 24L * 60L * 60L * 1000L) }
+                runCatching { epgDao.pruneWindow(now - 24L * 60L * 60L * 1000L, now + 7L * 24L * 60L * 60L * 1000L) }
+                runCatching { EpgDatabase.getDatabase(getApplication()).compactStorage() }
                 val updatedSources = _epgSources.value.map { source ->
                     if (enabledSources.any { it.id == source.id }) source.copy(lastUpdatedTime = now) else source
                 }
@@ -1077,6 +1115,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val encoded = localBytes?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
             if (encoded != null) playlist.copy(url = "data:text/plain;base64,$encoded") else playlist
         }
+        val allPrefs = prefs.all.mapValues { it.value?.toString().orEmpty() }
         val map = mapOf(
             "playlists" to Json.encodeToString(portablePlaylists),
             "epgSources" to Json.encodeToString(_epgSources.value),
@@ -1087,26 +1126,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "hiddenChannels" to Json.encodeToString(_hiddenChannels.value),
             "hiddenCategories" to Json.encodeToString(_hiddenCategories.value),
             "customCategoryOrder" to Json.encodeToString(customCategoryOrder.value),
-            "customChannelOrder" to Json.encodeToString(customChannelOrder.value)
+            "customChannelOrder" to Json.encodeToString(customChannelOrder.value),
+            "appSettings" to Json.encodeToString(allPrefs)
         )
         return Json.encodeToString(map)
     }
 
-    fun exportBackupJson(): String {
-        val map = mapOf(
-            "playlists" to Json.encodeToString(_playlists.value.filterNot { isKitTvPlaylist(it.name, it.url, it.id) }),
-            "epgSources" to Json.encodeToString(_epgSources.value),
-            "favorites" to Json.encodeToString(_favorites.value),
-            "pinned" to Json.encodeToString(_pinnedUrls.value),
-            "locked" to Json.encodeToString(_lockedChannels.value),
-            "lockedFolders" to Json.encodeToString(lockedFolders.value),
-            "hiddenChannels" to Json.encodeToString(_hiddenChannels.value),
-            "hiddenCategories" to Json.encodeToString(_hiddenCategories.value),
-            "customCategoryOrder" to Json.encodeToString(customCategoryOrder.value),
-            "customChannelOrder" to Json.encodeToString(customChannelOrder.value)
-        )
-        return Json.encodeToString(map)
-    }
+    fun exportBackupJson(): String = exportWifiTransferJson()
 
     fun importBackupJson(jsonString: String): Boolean {
         return try {
@@ -1135,6 +1161,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             map["hiddenCategories"]?.let { _hiddenCategories.value = Json.decodeFromString<Set<String>>(it); prefs.edit().putStringSet("hidden_categories", _hiddenCategories.value).apply() }
             map["customCategoryOrder"]?.let { customCategoryOrder.value = Json.decodeFromString<List<String>>(it); saveCustomCategoryOrderToPrefs(customCategoryOrder.value) }
             map["customChannelOrder"]?.let { customChannelOrder.value = Json.decodeFromString<List<String>>(it); saveCustomChannelOrderToPrefs(customChannelOrder.value) }
+            map["appSettings"]?.let { settingsJson ->
+                runCatching {
+                    val settingsMap: Map<String, String> = Json.decodeFromString(settingsJson)
+                    val editor = prefs.edit()
+                    settingsMap.forEach { (k, v) ->
+                        when {
+                            v == "true" || v == "false" -> editor.putBoolean(k, v.toBoolean())
+                            v.toIntOrNull() != null -> editor.putInt(k, v.toInt())
+                            v.toFloatOrNull() != null -> editor.putFloat(k, v.toFloat())
+                            else -> editor.putString(k, v)
+                        }
+                    }
+                    editor.apply()
+                    settingsMap["theme_mode"]?.let { themeMode.value = it }
+                    settingsMap["accent_color"]?.let { accentColor.value = it }
+                    settingsMap["panel_color"]?.let { panelColor.value = it }
+                    settingsMap["ui_style"]?.let { uiStyle.value = it }
+                    settingsMap["custom_theme_json"]?.let { customThemeJson.value = it }
+                    settingsMap["badge_shape"]?.let { badgeShape.value = it }
+                    settingsMap["badge_color"]?.let { badgeColor.value = it }
+                    settingsMap["auto_fallback_streams"]?.let { autoFallbackStreams.value = it.toBoolean() }
+                    settingsMap["car_fullscreen_mode"]?.let { carFullscreenMode.value = it.toBoolean() }
+                    settingsMap["car_autostart_enabled"]?.let { carAutostartEnabled.value = it.toBoolean() }
+                    settingsMap["wheel_next_action"]?.let { wheelNextAction.value = it }
+                    settingsMap["wheel_prev_action"]?.let { wheelPrevAction.value = it }
+                    settingsMap["wheel_channel_up_action"]?.let { wheelChannelUpAction.value = it }
+                    settingsMap["wheel_channel_down_action"]?.let { wheelChannelDownAction.value = it }
+                    settingsMap["wheel_play_pause_action"]?.let { wheelPlayPauseAction.value = it }
+                    settingsMap["msx_start_url"]?.let { msxStartUrl.value = it }
+                }
+            }
             _playlists.value.firstOrNull { it.isSelected && it.enabled }?.let { selected -> loadPlaylist(selected.url) }
             refreshAllEpg(force = true)
             true
@@ -1152,11 +1209,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "show_clock" -> showClock.value = value
                     "hide_playlist_url" -> hidePlaylistUrl.value = value
                     "auto_start_last" -> autoStartLast.value = value
+                    "auto_fallback_streams" -> autoFallbackStreams.value = value
                     "full_screen_default" -> fullScreenByDefault.value = value
                     "reload_stream_toggle" -> reloadStreamOnToggle.value = value
                     "force_landscape" -> forceLandscape.value = value
                     "background_playback" -> backgroundPlayback.value = value
                     "car_fullscreen_mode" -> carFullscreenMode.value = value
+                    "car_autostart_enabled" -> carAutostartEnabled.value = value
                     "show_source" -> showSource.value = value
                     "show_resolution" -> showResolution.value = value
                     "show_fps" -> showFps.value = value
@@ -1216,6 +1275,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "wheel_prev_action" -> wheelPrevAction.value = value
                     "wheel_channel_up_action" -> wheelChannelUpAction.value = value
                     "wheel_channel_down_action" -> wheelChannelDownAction.value = value
+                    "wheel_play_pause_action" -> wheelPlayPauseAction.value = value
+                    "msx_start_url" -> msxStartUrl.value = value
                 }
             }
             is Int -> {
@@ -1324,7 +1385,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refreshAllEpg()
     }
 
-    fun deleteEpgSource(id: String) { _epgSources.value = _epgSources.value.filter { it.id != id }; saveEpgSourcesToPrefs(); refreshAllEpg() }
+    fun deleteEpgSource(id: String) {
+        val target = _epgSources.value.find { it.id == id }
+        _epgSources.value = _epgSources.value.filter { it.id != id }
+        saveEpgSourcesToPrefs()
+        viewModelScope.launch(Dispatchers.IO) {
+            if (target != null) {
+                runCatching { epgDao.deleteBySourceUrl(target.url) }
+            }
+            val now = System.currentTimeMillis()
+            runCatching { epgDao.pruneWindow(now - 24L * 3600 * 1000L, now + 7L * 24 * 3600 * 1000L) }
+            runCatching { EpgDatabase.getDatabase(getApplication()).compactStorage() }
+            val validPrograms = epgDao.getAllValidPrograms(now)
+            processLoadedEpg(validPrograms)
+            updateEpgDbSize()
+        }
+    }
 
     fun clearData() {
         prefs.edit().clear().apply()

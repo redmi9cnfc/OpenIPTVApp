@@ -258,6 +258,7 @@ fun PlayerScreen(
     var tempPassword by remember { mutableStateOf("") }
     var passwordError by remember { mutableStateOf(false) }
 
+    val autoFallbackEnabled by viewModel.autoFallbackStreams.collectAsState()
     var retryCount by remember { mutableIntStateOf(0) }
     var playbackError by remember { mutableStateOf<String?>(null) }
     var currentTime by remember { mutableStateOf("") }
@@ -340,7 +341,15 @@ fun PlayerScreen(
             override fun onPlayerError(error: PlaybackException) {
                 isBuffering = false
                 val errorMsg = error.localizedMessage ?: "Could not play stream"
-                if (retryCount < 3) {
+                val fallbackUrl = if (autoFallbackEnabled) com.kraftplay.openiptv.service.SharedPlayerManager.findFallbackStreamUrl(currentUrl, currentChannel, allChannels) else null
+                if (!fallbackUrl.isNullOrBlank() && fallbackUrl != currentUrl) {
+                    playbackError = tr("Переключение на резервное зеркало...")
+                    CoroutineScope(Dispatchers.Main).launch {
+                        delay(1000L)
+                        currentUrl = fallbackUrl
+                        com.kraftplay.openiptv.service.SharedPlayerManager.playStream(context, fallbackUrl, currentChannel, allChannels)
+                    }
+                } else if (retryCount < 3) {
                     retryCount += 1
                     playbackError = "Stream error. Auto-retrying ($retryCount/3)…"
                     CoroutineScope(Dispatchers.Main).launch {
@@ -1099,7 +1108,7 @@ fun PlayerScreen(
                 }
             }
 
-            AlertDialog(
+            InPageDialog(
                 onDismissRequest = { showArchiveDialog = false },
                 shape = RoundedCornerShape(28.dp),
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1280,7 +1289,7 @@ fun PlayerScreen(
             val currentTracks = exoPlayer.currentTracks
             val audioGroup = currentTracks.groups.find { it.type == C.TRACK_TYPE_AUDIO }
 
-            AlertDialog(
+            InPageDialog(
                 onDismissRequest = { showTracksDialog = false },
                 shape = RoundedCornerShape(28.dp),
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1325,7 +1334,7 @@ fun PlayerScreen(
 
         // Speed Dialog
         if (showSpeedDialog) {
-            AlertDialog(
+            InPageDialog(
                 onDismissRequest = { showSpeedDialog = false },
                 shape = RoundedCornerShape(28.dp),
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1358,7 +1367,7 @@ fun PlayerScreen(
         if (showPasswordDialog != null) {
             val (channel, _, _) = showPasswordDialog!!
             val savedPassword = viewModel.getChannelPassword(channel.url) ?: ""
-            AlertDialog(
+            InPageDialog(
                 onDismissRequest = { showPasswordDialog = null; tempPassword = ""; passwordError = false },
                 shape = RoundedCornerShape(28.dp),
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,

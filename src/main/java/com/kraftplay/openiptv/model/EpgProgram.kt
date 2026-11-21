@@ -13,7 +13,8 @@ data class EpgProgram(
     val endTime: Long,
     val description: String? = null,
     val category: String? = null,
-    val iconUrl: String? = null
+    val iconUrl: String? = null,
+    val sourceUrl: String? = null
 ) {
     // Helper to get Date objects if needed
     val start: Date get() = Date(startTime)

@@ -124,6 +124,24 @@ object SharedPlayerManager {
         }
     }
 
+    fun findFallbackStreamUrl(currentUrl: String, channel: IptvChannel?, allChannels: List<IptvChannel>): String? {
+        if (allChannels.isEmpty()) return null
+        val cleanCurrent = currentUrl.trim().lowercase()
+        val targetName = channel?.name?.trim()?.lowercase() ?: ""
+        val targetTvg = channel?.tvgName?.trim()?.lowercase() ?: ""
+        val targetEpg = channel?.epgId?.trim()?.lowercase() ?: ""
+
+        val matches = allChannels.filter { item ->
+            val itemUrl = item.url.trim().lowercase()
+            itemUrl != cleanCurrent && (
+                (targetName.isNotEmpty() && item.name.trim().lowercase() == targetName) ||
+                (targetTvg.isNotEmpty() && !item.tvgName.isNullOrBlank() && item.tvgName.trim().lowercase() == targetTvg) ||
+                (targetEpg.isNotEmpty() && !item.epgId.isNullOrBlank() && item.epgId.trim().lowercase() == targetEpg)
+            )
+        }
+        return matches.firstOrNull()?.url
+    }
+
     @Synchronized
     fun stopPlayback() {
         player?.let { exo ->
