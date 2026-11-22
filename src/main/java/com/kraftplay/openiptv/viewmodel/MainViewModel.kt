@@ -949,12 +949,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "http://$rawUrl"
                     } else rawUrl
 
-                    runCatching {
-                        epgDao.deleteBySourceUrl(source.url)
-                        epgDao.deleteBySourceUrl(finalUrl)
-                        epgDao.deleteBySourceUrl(rawUrl)
-                    }
-
                     try {
                         val request = Request.Builder()
                             .url(finalUrl)
@@ -1015,6 +1009,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 val isGzipped = (b1 == 0x1f && b2 == 0x8b) || finalUrl.endsWith(".gz", true)
 
                                 var parsedCount = 0
+                                var sourceCleared = false
                                 XmlTvParser.parseStreaming(
                                     bis, isGzipped, cutoffTime, futureLimit,
                                     sourceUrl = source.url,
@@ -1024,6 +1019,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     }
                                 ) { batch ->
                                     try {
+                                        if (!sourceCleared) {
+                                            sourceCleared = true
+                                            runCatching {
+                                                epgDao.deleteBySourceUrl(source.url)
+                                                epgDao.deleteBySourceUrl(finalUrl)
+                                                epgDao.deleteBySourceUrl(rawUrl)
+                                            }
+                                        }
                                         epgDao.insertAll(batch)
                                         parsedCount += batch.size
                                         _epgStatus.value = "${source.name}: $parsedCount EPG"
@@ -1134,67 +1137,171 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun exportBackupJson(): String = exportWifiTransferJson()
 
+    /** Compact shareable JSON tailored specifically for QR code size limits (< 2KB) */
+    fun exportQrTransferJson(): String {
+        val compactPlaylists = _playlists.value
+            .filterNot { isKitTvPlaylist(it.name, it.url, it.id) }
+            .filterNot { it.url.startsWith("data:", ignoreCase = true) }
+            .map { Playlist(id = it.id, name = it.name, url = it.url, isSelected = it.isSelected, enabled = it.enabled) }
+
+        val compactEpg = _epgSources.value.map { EpgSource(id = it.id, name = it.name, url = it.url, enabled = it.enabled) }
+
+        val importantSettings = listOf("user_agent", "ui_style", "font_size", "buffer_size", "theme", "custom_theme_json", "dark_theme", "force_landscape")
+            .mapNotNull { key -> prefs.getString(key, null)?.let { key to it } }
+            .toMap()
+
+        val map = mutableMapOf<String, String>()
+        if (compactPlaylists.isNotEmpty()) {
+            map["playlists"] = Json.encodeToString(compactPlaylists)
+        }
+        if (compactEpg.isNotEmpty()) {
+            map["epgSources"] = Json.encodeToString(compactEpg)
+        }
+        if (importantSettings.isNotEmpty()) {
+            map["appSettings"] = Json.encodeToString(importantSettings)
+        }
+        val fullMapJson = Json.encodeToString(map)
+        return if (fullMapJson.length <= 2500) {
+            fullMapJson
+        } else {
+            val minPlaylists = compactPlaylists.take(3)
+            val minEpg = compactEpg.take(2)
+            Json.encodeToString(mapOf(
+                "playlists" to Json.encodeToString(minPlaylists),
+                "epgSources" to Json.encodeToString(minEpg)
+            ))
+        }
+    }
+
     fun importBackupJson(jsonString: String): Boolean {
         return try {
-            val map: Map<String, String> = Json.decodeFromString(jsonString)
-            map["playlists"]?.let {
-                val imported: List<Playlist> = Json.decodeFromString<List<Playlist>>(it).filterNot { p -> isKitTvPlaylist(p.name, p.url, p.id) }
-                val playlistDir = File(getApplication<Application>().filesDir, "imported_playlists").apply { mkdirs() }
-                _playlists.value = imported.map { playlist ->
-                    val prefix = "data:text/plain;base64,"
-                    if (playlist.url.startsWith(prefix, ignoreCase = true)) {
-                        val bytes = android.util.Base64.decode(playlist.url.substring(prefix.length), android.util.Base64.DEFAULT)
-                        val safeName = playlist.name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(60).ifBlank { "playlist" }
-                        val target = File(playlistDir, "${playlist.id.replace(Regex("[^A-Za-z0-9_-]"), "_")}-$safeName.m3u8")
-                        target.writeBytes(bytes)
-                        playlist.copy(url = target.absolutePath)
-                    } else playlist
-                }
-                savePlaylistsToPrefs()
-            }
-            map["epgSources"]?.let { _epgSources.value = Json.decodeFromString(it); saveEpgSourcesToPrefs() }
-            map["favorites"]?.let { _favorites.value = Json.decodeFromString(it); prefs.edit().putStringSet("favorites", _favorites.value).apply() }
-            map["pinned"]?.let { _pinnedUrls.value = Json.decodeFromString(it); prefs.edit().putStringSet("pinned_channels", _pinnedUrls.value).apply() }
-            map["locked"]?.let { _lockedChannels.value = Json.decodeFromString(it); saveLockedPasswordsToPrefs(_lockedChannels.value) }
-            map["lockedFolders"]?.let { lockedFolders.value = Json.decodeFromString<Map<String, String>>(it); saveLockedFoldersToPrefs(lockedFolders.value) }
-            map["hiddenChannels"]?.let { _hiddenChannels.value = Json.decodeFromString<Set<String>>(it); prefs.edit().putStringSet("hidden_channels", _hiddenChannels.value).apply() }
-            map["hiddenCategories"]?.let { _hiddenCategories.value = Json.decodeFromString<Set<String>>(it); prefs.edit().putStringSet("hidden_categories", _hiddenCategories.value).apply() }
-            map["customCategoryOrder"]?.let { customCategoryOrder.value = Json.decodeFromString<List<String>>(it); saveCustomCategoryOrderToPrefs(customCategoryOrder.value) }
-            map["customChannelOrder"]?.let { customChannelOrder.value = Json.decodeFromString<List<String>>(it); saveCustomChannelOrderToPrefs(customChannelOrder.value) }
-            map["appSettings"]?.let { settingsJson ->
-                runCatching {
-                    val settingsMap: Map<String, String> = Json.decodeFromString(settingsJson)
-                    val editor = prefs.edit()
-                    settingsMap.forEach { (k, v) ->
-                        when {
-                            v == "true" || v == "false" -> editor.putBoolean(k, v.toBoolean())
-                            v.toIntOrNull() != null -> editor.putInt(k, v.toInt())
-                            v.toFloatOrNull() != null -> editor.putFloat(k, v.toFloat())
-                            else -> editor.putString(k, v)
+            val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
+            if (jsonString.contains("\"playlists\"") || jsonString.contains("\"epgSources\"") || jsonString.contains("\"appSettings\"")) {
+                val map: Map<String, String> = jsonParser.decodeFromString(jsonString)
+                map["playlists"]?.let { pJson ->
+                    val imported: List<Playlist> = jsonParser.decodeFromString<List<Playlist>>(pJson).filterNot { p -> isKitTvPlaylist(p.name, p.url, p.id) }
+                    val current = _playlists.value.toMutableList()
+                    val playlistDir = File(getApplication<Application>().filesDir, "imported_playlists").apply { mkdirs() }
+                    imported.forEach { newP ->
+                        val prefix = "data:text/plain;base64,"
+                        val finalUrl = if (newP.url.startsWith(prefix, ignoreCase = true)) {
+                            val bytes = android.util.Base64.decode(newP.url.substring(prefix.length), android.util.Base64.DEFAULT)
+                            val safeName = newP.name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(60).ifBlank { "playlist" }
+                            val target = File(playlistDir, "${newP.id.replace(Regex("[^A-Za-z0-9_-]"), "_")}-$safeName.m3u8")
+                            target.writeBytes(bytes)
+                            target.absolutePath
+                        } else newP.url
+
+                        val prepared = newP.copy(url = finalUrl, isSelected = false)
+                        val idx = current.indexOfFirst { it.url == finalUrl || (it.id == newP.id && it.id.isNotBlank()) }
+                        if (idx >= 0) {
+                            current[idx] = prepared
+                        } else {
+                            current.add(prepared)
                         }
                     }
-                    editor.apply()
-                    settingsMap["theme_mode"]?.let { themeMode.value = it }
-                    settingsMap["accent_color"]?.let { accentColor.value = it }
-                    settingsMap["panel_color"]?.let { panelColor.value = it }
-                    settingsMap["ui_style"]?.let { uiStyle.value = it }
-                    settingsMap["custom_theme_json"]?.let { customThemeJson.value = it }
-                    settingsMap["badge_shape"]?.let { badgeShape.value = it }
-                    settingsMap["badge_color"]?.let { badgeColor.value = it }
-                    settingsMap["auto_fallback_streams"]?.let { autoFallbackStreams.value = it.toBoolean() }
-                    settingsMap["car_fullscreen_mode"]?.let { carFullscreenMode.value = it.toBoolean() }
-                    settingsMap["car_autostart_enabled"]?.let { carAutostartEnabled.value = it.toBoolean() }
-                    settingsMap["wheel_next_action"]?.let { wheelNextAction.value = it }
-                    settingsMap["wheel_prev_action"]?.let { wheelPrevAction.value = it }
-                    settingsMap["wheel_channel_up_action"]?.let { wheelChannelUpAction.value = it }
-                    settingsMap["wheel_channel_down_action"]?.let { wheelChannelDownAction.value = it }
-                    settingsMap["wheel_play_pause_action"]?.let { wheelPlayPauseAction.value = it }
-                    settingsMap["msx_start_url"]?.let { msxStartUrl.value = it }
+                    if (current.isNotEmpty() && current.none { it.isSelected }) {
+                        val active = current.firstOrNull { it.enabled } ?: current.first()
+                        val idx = current.indexOf(active)
+                        if (idx >= 0) current[idx] = active.copy(isSelected = true)
+                    }
+                    _playlists.value = current
+                    savePlaylistsToPrefs()
+                }
+
+                map["epgSources"]?.let { eJson ->
+                    val imported: List<EpgSource> = jsonParser.decodeFromString(eJson)
+                    val current = _epgSources.value.toMutableList()
+                    imported.forEach { newE ->
+                        if (current.none { it.url == newE.url }) {
+                            current.add(newE)
+                        }
+                    }
+                    _epgSources.value = current
+                    saveEpgSourcesToPrefs()
+                }
+
+                map["favorites"]?.let { _favorites.value = jsonParser.decodeFromString(it); prefs.edit().putStringSet("favorites", _favorites.value).apply() }
+                map["pinned"]?.let { _pinnedUrls.value = jsonParser.decodeFromString(it); prefs.edit().putStringSet("pinned_channels", _pinnedUrls.value).apply() }
+                map["locked"]?.let { _lockedChannels.value = jsonParser.decodeFromString(it); saveLockedPasswordsToPrefs(_lockedChannels.value) }
+                map["lockedFolders"]?.let { lockedFolders.value = jsonParser.decodeFromString<Map<String, String>>(it); saveLockedFoldersToPrefs(lockedFolders.value) }
+                map["hiddenChannels"]?.let { _hiddenChannels.value = jsonParser.decodeFromString<Set<String>>(it); prefs.edit().putStringSet("hidden_channels", _hiddenChannels.value).apply() }
+                map["hiddenCategories"]?.let { _hiddenCategories.value = jsonParser.decodeFromString<Set<String>>(it); prefs.edit().putStringSet("hidden_categories", _hiddenCategories.value).apply() }
+                map["customCategoryOrder"]?.let { customCategoryOrder.value = jsonParser.decodeFromString<List<String>>(it); saveCustomCategoryOrderToPrefs(customCategoryOrder.value) }
+                map["customChannelOrder"]?.let { customChannelOrder.value = jsonParser.decodeFromString<List<String>>(it); saveCustomChannelOrderToPrefs(customChannelOrder.value) }
+                map["appSettings"]?.let { settingsJson ->
+                    runCatching {
+                        val settingsMap: Map<String, String> = jsonParser.decodeFromString(settingsJson)
+                        val editor = prefs.edit()
+                        settingsMap.forEach { (k, v) ->
+                            when {
+                                v == "true" || v == "false" -> editor.putBoolean(k, v.toBoolean())
+                                v.toIntOrNull() != null -> editor.putInt(k, v.toInt())
+                                v.toFloatOrNull() != null -> editor.putFloat(k, v.toFloat())
+                                else -> editor.putString(k, v)
+                            }
+                        }
+                        editor.apply()
+                        settingsMap["theme_mode"]?.let { themeMode.value = it }
+                        settingsMap["accent_color"]?.let { accentColor.value = it }
+                        settingsMap["panel_color"]?.let { panelColor.value = it }
+                        settingsMap["ui_style"]?.let { uiStyle.value = it }
+                        settingsMap["custom_theme_json"]?.let { customThemeJson.value = it }
+                        settingsMap["badge_shape"]?.let { badgeShape.value = it }
+                        settingsMap["badge_color"]?.let { badgeColor.value = it }
+                        settingsMap["auto_fallback_streams"]?.let { autoFallbackStreams.value = it.toBoolean() }
+                        settingsMap["car_fullscreen_mode"]?.let { carFullscreenMode.value = it.toBoolean() }
+                        settingsMap["car_autostart_enabled"]?.let { carAutostartEnabled.value = it.toBoolean() }
+                        settingsMap["wheel_next_action"]?.let { wheelNextAction.value = it }
+                        settingsMap["wheel_prev_action"]?.let { wheelPrevAction.value = it }
+                        settingsMap["wheel_channel_up_action"]?.let { wheelChannelUpAction.value = it }
+                        settingsMap["wheel_channel_down_action"]?.let { wheelChannelDownAction.value = it }
+                        settingsMap["wheel_play_pause_action"]?.let { wheelPlayPauseAction.value = it }
+                        settingsMap["msx_start_url"]?.let { msxStartUrl.value = it }
+                    }
+                }
+                _playlists.value.firstOrNull { it.isSelected && it.enabled }?.let { selected -> loadPlaylist(selected.url) }
+                refreshAllEpg(force = true)
+                return true
+            }
+
+            // Case B: List of playlists
+            runCatching {
+                val list: List<Playlist> = jsonParser.decodeFromString(jsonString)
+                if (list.isNotEmpty()) {
+                    list.forEach { addPlaylist(it.name, it.url) }
+                    return true
                 }
             }
-            _playlists.value.firstOrNull { it.isSelected && it.enabled }?.let { selected -> loadPlaylist(selected.url) }
-            refreshAllEpg(force = true)
-            true
+
+            // Case C: List of EPG sources
+            runCatching {
+                val list: List<EpgSource> = jsonParser.decodeFromString(jsonString)
+                if (list.isNotEmpty()) {
+                    list.forEach { addEpgSource(it.name, it.url) }
+                    return true
+                }
+            }
+
+            // Case D: Single Playlist
+            runCatching {
+                val p: Playlist = jsonParser.decodeFromString(jsonString)
+                if (p.url.isNotBlank()) {
+                    addPlaylist(p.name, p.url)
+                    return true
+                }
+            }
+
+            // Case E: Single EpgSource
+            runCatching {
+                val e: EpgSource = jsonParser.decodeFromString(jsonString)
+                if (e.url.isNotBlank()) {
+                    addEpgSource(e.name, e.url)
+                    return true
+                }
+            }
+
+            false
         } catch (e: Exception) {
             false
         }

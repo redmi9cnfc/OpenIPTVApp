@@ -75,6 +75,11 @@ fun getCategoryDisplayName(category: String): String {
     }
 }
 
+internal fun topBarTargetSize(isAuto: Boolean): androidx.compose.ui.unit.Dp = ScreenPresets.targetSize(isAuto).dp
+internal fun topBarIconSize(isAuto: Boolean): androidx.compose.ui.unit.Dp = ScreenPresets.iconSize(isAuto).dp
+internal fun categoryChipLabelFontSize(userFontSize: Float, isAuto: Boolean): Float =
+    maxOf(userFontSize - 2f, if (isAuto) 24f else 16f)
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
@@ -111,6 +116,7 @@ fun MainScreen(
     val listSize by viewModel.listSize.collectAsState()
     val isEpgLoading by viewModel.isEpgLoading.collectAsState()
     val channelViewingTimes by viewModel.channelViewingTimes.collectAsState()
+    val recentChannels by viewModel.recentChannels.collectAsState()
     val uiStyle by viewModel.uiStyle.collectAsState()
     val catchupMode by viewModel.catchupMode.collectAsState()
     val showChannelNumbers by viewModel.showChannelNumbers.collectAsState()
@@ -126,8 +132,60 @@ fun MainScreen(
     var currentTime by remember { mutableStateOf(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())) }
     var isSearchExpanded by remember { mutableStateOf(false) }
     var showPlaylistMenu by remember { mutableStateOf(false) }
+
+    val speechIntentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val matches = result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
+        if (!matches.isNullOrEmpty()) {
+            val query = matches[0]
+            isSearchExpanded = true
+            viewModel.updateSearchQuery(query)
+        }
+    }
+
+    val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            com.kraftplay.openiptv.util.VoiceInputHelper.startSpeechRecognition(
+                context = context,
+                onResult = { query ->
+                    isSearchExpanded = true
+                    viewModel.updateSearchQuery(query)
+                },
+                onFallbackIntent = { intent ->
+                    speechIntentLauncher.launch(intent)
+                }
+            )
+        } else {
+            Toast.makeText(context, "Разрешите доступ к микрофону для голосового поиска", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val startVoiceSearch = {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.RECORD_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            com.kraftplay.openiptv.util.VoiceInputHelper.startSpeechRecognition(
+                context = context,
+                onResult = { query ->
+                    isSearchExpanded = true
+                    viewModel.updateSearchQuery(query)
+                },
+                onFallbackIntent = { intent ->
+                    speechIntentLauncher.launch(intent)
+                }
+            )
+        } else {
+            recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
     
     var showAddPlaylistDialog by remember { mutableStateOf(false) }
+    var showQrScannerDialog by remember { mutableStateOf(false) }
     var showWifiTransfer by remember { mutableStateOf(false) }
     val playlistFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { selected ->
@@ -233,21 +291,6 @@ fun MainScreen(
                             Icon(Icons.Default.Search, stringResource(R.string.search), modifier = Modifier.size(20.dp))
                         }
                         IconButton(onClick = {
-                            com.kraftplay.openiptv.util.VoiceInputHelper.startSpeechRecognition(
-                                context = context,
-                                onResult = { query ->
-                                    isSearchExpanded = true
-                                    viewModel.updateSearchQuery(query)
-                                }
-                            )
-                        }, modifier = Modifier.size(36.dp)) {
-                            Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.Mic,
-                                contentDescription = "Voice Search",
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        IconButton(onClick = {
                             val nextMode = if (categoryDisplayMode == "Chips") "Folders" else "Chips"
                             viewModel.setCategoryDisplayMode(nextMode)
                         }) {
@@ -351,11 +394,20 @@ fun MainScreen(
                         placeholder = { Text(stringResource(R.string.search)) },
                         leadingIcon = { Icon(Icons.Default.Search, null) },
                         trailingIcon = {
-                            IconButton(onClick = {
-                                viewModel.updateSearchQuery("")
-                                isSearchExpanded = false
-                            }) {
-                                Icon(Icons.Default.Close, null)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { startVoiceSearch() }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Mic,
+                                        contentDescription = "Voice Search",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                IconButton(onClick = {
+                                    viewModel.updateSearchQuery("")
+                                    isSearchExpanded = false
+                                }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Спрятать")
+                                }
                             }
                         },
                         shape = MaterialTheme.shapes.medium,
@@ -392,18 +444,19 @@ fun MainScreen(
                             FilterChip(
                                 selected = category == selectedCategory,
                                 onClick = handleChipClick,
-                                label = { Text(if (category == "MSX" || category == "Prisma") "Media Station X" else getCategoryDisplayName(category), fontSize = (fontSize - 2).sp) },
+                                label = { Text(if (category == "MSX" || category == "Prisma") "Media Station X" else getCategoryDisplayName(category), fontSize = categoryChipLabelFontSize(fontSize, isAuto).sp) },
                                 leadingIcon = { 
                                     when(category) {
-                                        "Favorites" -> Icon(Icons.Default.Favorite, null, modifier = Modifier.size(16.dp))
-                                        "Recent" -> Icon(Icons.Default.History, null, modifier = Modifier.size(16.dp))
-                                        "MSX", "Prisma" -> Icon(Icons.Default.Public, null, modifier = Modifier.size(16.dp), tint = Color(0xFF00A2E8))
+                                        "Favorites" -> Icon(Icons.Default.Favorite, null, modifier = Modifier.size(ScreenPresets.iconSize(isAuto).dp))
+                                        "Recent" -> Icon(Icons.Default.History, null, modifier = Modifier.size(ScreenPresets.iconSize(isAuto).dp))
+                                        "MSX", "Prisma" -> Icon(Icons.Default.Public, null, modifier = Modifier.size(ScreenPresets.iconSize(isAuto).dp), tint = Color(0xFF00A2E8))
                                     }
                                 },
                                 trailingIcon = if (isFolderLocked) {
-                                    { Icon(Icons.Default.Lock, contentDescription = "Locked", modifier = Modifier.size(14.dp)) }
+                                    { Icon(Icons.Default.Lock, contentDescription = "Locked", modifier = Modifier.size((ScreenPresets.iconSize(isAuto) - 4).dp)) }
                                 } else null,
                                 modifier = Modifier
+                                    .heightIn(min = ScreenPresets.targetSize(isAuto).dp)
                                     .onFocusChanged { isFocused = it.isFocused }
                                     .scale(if (isFocused) 1.1f else 1f)
                                     .border(
@@ -561,6 +614,25 @@ fun MainScreen(
                             Text(getCategoryDisplayName(selectedFolder ?: ""), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         }
 
+                        if (selectedCategory == "All" && searchQuery.isEmpty()) {
+                            ContinueWatchingRow(
+                                channels = recentChannels,
+                                viewingTimes = channelViewingTimes,
+                                currentPrograms = currentPrograms,
+                                nextPrograms = nextPrograms,
+                                fontSize = fontSize,
+                                onChannelClick = { channel ->
+                                    if (channel.isLocked) {
+                                        showPasswordDialog = Triple(channel, "play", "")
+                                    } else {
+                                        onChannelClick(channel)
+                                        viewModel.updateSetting("last_channel_url", channel.url)
+                                    }
+                                },
+                                onLongClick = { showChannelMenu = it }
+                            )
+                        }
+
                         val gridColumns = channelGridCells(listSize)
                         LazyVerticalGrid(
                             columns = gridColumns,
@@ -642,6 +714,13 @@ fun MainScreen(
                 }
             },
             confirmButton = { TextButton(onClick = { showPlaylistMenu = false }) { Text(tr("Отмена")) } }
+        )
+    }
+
+    if (showQrScannerDialog) {
+        QrCodeScannerDialog(
+            viewModel = viewModel,
+            onDismiss = { showQrScannerDialog = false }
         )
     }
 
@@ -1795,6 +1874,45 @@ fun ChannelCard(
                 }
                 if (channel.isFavorite) {
                     Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ContinueWatchingRow(
+    channels: List<IptvChannel>,
+    viewingTimes: Map<String, Long>,
+    currentPrograms: Map<String, EpgProgram>,
+    nextPrograms: Map<String, EpgProgram>,
+    fontSize: Float,
+    onChannelClick: (IptvChannel) -> Unit,
+    onLongClick: (IptvChannel) -> Unit
+) {
+    val items = com.kraftplay.openiptv.util.continueWatchingChannels(channels, viewingTimes)
+    if (items.isEmpty()) return
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Text(
+            text = stringResource(R.string.continue_watching),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(items, key = { it.url }) { channel ->
+                Box(modifier = Modifier.width(200.dp)) {
+                    ChannelCard(
+                        channel = channel,
+                        currentProgram = currentPrograms[channel.url],
+                        nextProgram = nextPrograms[channel.url],
+                        viewingTime = viewingTimes[channel.url] ?: 0L,
+                        fontSize = fontSize,
+                        listSize = "Compact",
+                        uiStyle = "Material",
+                        onClick = { onChannelClick(channel) },
+                        onLongClick = { onLongClick(channel) }
+                    )
                 }
             }
         }

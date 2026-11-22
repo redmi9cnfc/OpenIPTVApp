@@ -76,7 +76,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import com.kraftplay.openiptv.PlayerBackAction
 import com.kraftplay.openiptv.model.IptvChannel
+import com.kraftplay.openiptv.playerBackAction
 import com.kraftplay.openiptv.util.CatchupUrlBuilder
 import com.kraftplay.openiptv.util.EpgMatcher
 import com.kraftplay.openiptv.viewmodel.MainViewModel
@@ -456,8 +458,16 @@ fun PlayerScreen(
     }
 
     BackHandler {
-        com.kraftplay.openiptv.service.SharedPlayerManager.stopPlayback()
-        onExitChannel()
+        when (playerBackAction(showInfoPanel)) {
+            PlayerBackAction.HIDE_CONTROLS -> {
+                showInfoPanel = false
+                applyImmersiveMode()
+            }
+            PlayerBackAction.EXIT -> {
+                com.kraftplay.openiptv.service.SharedPlayerManager.stopPlayback()
+                onExitChannel()
+            }
+        }
     }
 
     DisposableEffect(Unit) {

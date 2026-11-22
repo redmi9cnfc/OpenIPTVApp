@@ -119,8 +119,8 @@ fun StyledCard(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = 0.12f),
-                            Color.White.copy(alpha = 0.04f)
+                            Color.Black.copy(alpha = 0.88f),
+                            Color.Black.copy(alpha = 0.78f)
                         )
                     )
                 )

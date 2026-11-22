@@ -11,7 +11,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -212,10 +214,30 @@ fun OpenIptvRootContent(
 
     LanguageContextWrapper(language = language, resultRegistryOwner = resultRegistryOwner) {
         val context = LocalContext.current
+        val notificationPermissionLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            if (!isGranted) {
+                Toast.makeText(context, "Уведомления отключены — напоминания о передачах не смогут приходить", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        LaunchedEffect(Unit) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (androidx.core.content.ContextCompat.checkSelfPermission(
+                        context,
+                        android.Manifest.permission.POST_NOTIFICATIONS
+                    ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+        }
+
         androidx.compose.runtime.CompositionLocalProvider(com.kraftplay.openiptv.ui.LocalIsAuto provides isAuto) {
             MaterialTheme(colorScheme = colorScheme) {
-                val navController = rememberNavController()
-            var lastBackPressTime by remember { mutableStateOf(0L) }
+            val navController = rememberNavController()
+            var backExitState by remember { mutableStateOf(BackExitPolicy.State()) }
 
             LaunchedEffect(autoPlayUrl) {
                 if (!autoPlayUrl.isNullOrEmpty()) {
@@ -227,18 +249,12 @@ fun OpenIptvRootContent(
             BackHandler(enabled = true) {
                 val currentRoute = navController.currentDestination?.route
                 if (currentRoute == "main") {
-                    when (backBehavior) {
-                        "Exit" -> onExitApp()
-                        "Confirm", "Double press to exit" -> {
-                            val now = System.currentTimeMillis()
-                            if (now - lastBackPressTime < 2000) {
-                                onExitApp()
-                            } else {
-                                lastBackPressTime = now
-                                Toast.makeText(context, "Press again to exit", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                        "Back to list" -> { }
+                    val result = BackExitPolicy.onBack(backBehavior, System.currentTimeMillis(), backExitState)
+                    backExitState = result.state
+                    when (result.action) {
+                        BackExitPolicy.Action.EXIT -> onExitApp()
+                        BackExitPolicy.Action.PROMPT -> Toast.makeText(context, R.string.press_again_to_exit, Toast.LENGTH_SHORT).show()
+                        BackExitPolicy.Action.IGNORE -> { }
                     }
                 } else {
                     navController.popBackStack()

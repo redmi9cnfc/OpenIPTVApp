@@ -1,5 +1,6 @@
 package com.kraftplay.openiptv.parser
 
+import android.os.Build
 import android.util.Xml
 import com.kraftplay.openiptv.model.EpgProgram
 import org.xmlpull.v1.XmlPullParser
@@ -39,7 +40,6 @@ object XmlTvParser {
         val batch = mutableListOf<EpgProgram>()
         val channelNames = mutableMapOf<String, List<String>>()
         val maxBatchSize = 5000
-        var channelNamesDelivered = false
 
         try {
             val parser = Xml.newPullParser()
@@ -70,10 +70,6 @@ object XmlTvParser {
                             }
                         }
                         "programme" -> {
-                            if (!channelNamesDelivered && channelNames.isNotEmpty() && onChannelNamesParsed != null) {
-                                channelNamesDelivered = true
-                                onChannelNamesParsed(HashMap(channelNames))
-                            }
                             val channelId = parser.getAttributeValue(null, "channel")?.trim().orEmpty()
                             val startStr = parser.getAttributeValue(null, "start")
                             val stopStr = parser.getAttributeValue(null, "stop")
@@ -126,8 +122,8 @@ object XmlTvParser {
                 }
                 eventType = parser.next()
             }
-            if (!channelNamesDelivered && channelNames.isNotEmpty() && onChannelNamesParsed != null) {
-                onChannelNamesParsed(channelNames)
+            if (channelNames.isNotEmpty() && onChannelNamesParsed != null) {
+                onChannelNamesParsed(HashMap(channelNames))
             }
             if (batch.isNotEmpty()) {
                 onBatchReady(ArrayList(batch))
@@ -177,22 +173,30 @@ object XmlTvParser {
         if (dateStr.isNullOrBlank()) return null
         val clean = dateStr.trim()
 
-        if (clean.length >= 14) {
+        // 1. Standard XMLTV 14-digit or 12-digit format YYYYMMDDHHMMSS or YYYYMMDDHHMM
+        val digitsOnly = clean.takeWhile { it.isDigit() }
+        if (digitsOnly.length >= 12) {
             try {
-                val year = clean.substring(0, 4).toInt()
-                val month = clean.substring(4, 6).toInt() - 1
-                val day = clean.substring(6, 8).toInt()
-                val hour = clean.substring(8, 10).toInt()
-                val minute = clean.substring(10, 12).toInt()
-                val second = clean.substring(12, 14).toInt()
+                val year = digitsOnly.substring(0, 4).toInt()
+                val month = digitsOnly.substring(4, 6).toInt() - 1
+                val day = digitsOnly.substring(6, 8).toInt()
+                val hour = digitsOnly.substring(8, 10).toInt()
+                val minute = digitsOnly.substring(10, 12).toInt()
+                val second = if (digitsOnly.length >= 14) digitsOnly.substring(12, 14).toInt() else 0
 
-                val cal = utcCalendarThreadLocal.get()!!
+                val rest = clean.substring(digitsOnly.length).trim()
+                val hasExplicitOffset = rest.isNotEmpty() && (rest.startsWith("+") || rest.startsWith("-") || rest.equals("Z", ignoreCase = true))
+
+                val cal = if (hasExplicitOffset) {
+                    utcCalendarThreadLocal.get()!!
+                } else {
+                    Calendar.getInstance()
+                }
+
                 cal.clear()
                 cal.set(year, month, day, hour, minute, second)
-
                 var millis = cal.timeInMillis
 
-                val rest = clean.substring(14).trim()
                 if (rest.isNotEmpty() && (rest.startsWith("+") || rest.startsWith("-"))) {
                     val sign = if (rest.startsWith("+")) -1 else 1
                     val offsetStr = rest.substring(1).replace(":", "")
@@ -205,6 +209,24 @@ object XmlTvParser {
                 return millis
             } catch (e: Exception) { }
         }
+
+        // 2. ISO-8601 or other standard formatted date
+        try {
+            if (clean.contains("-") || clean.contains("T") || clean.contains(":")) {
+                val isoClean = clean.replace(" ", "T")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val javaInstant = java.time.OffsetDateTime.parse(isoClean)
+                    return javaInstant.toInstant().toEpochMilli()
+                }
+            }
+        } catch (e: Exception) { }
+
+        // 3. Raw epoch milliseconds or seconds
+        val asLong = clean.toLongOrNull()
+        if (asLong != null) {
+            return if (asLong < 10000000000L) asLong * 1000L else asLong
+        }
+
         return null
     }
 }

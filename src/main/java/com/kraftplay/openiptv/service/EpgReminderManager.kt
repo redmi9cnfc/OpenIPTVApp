@@ -30,17 +30,24 @@ object EpgReminderManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val triggerTime = startTimeMs - 300000L // 5 minutes before show starts
-        val actualTriggerTime = if (triggerTime > System.currentTimeMillis()) triggerTime else System.currentTimeMillis() + 5000L
+        // Уведомление за 5 минут до начала (или через 3 секунды, если до начала осталось меньше 5 минут)
+        val triggerTime = startTimeMs - 300000L
+        val now = System.currentTimeMillis()
+        val actualTriggerTime = if (triggerTime > now) triggerTime else now + 3000L
 
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, actualTriggerTime, pendingIntent)
-            } else {
-                alarmManager.setExact(AlarmManager.RTC_WAKEUP, actualTriggerTime, pendingIntent)
-            }
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(actualTriggerTime, pendingIntent)
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
         } catch (e: Exception) {
-            alarmManager.set(AlarmManager.RTC_WAKEUP, actualTriggerTime, pendingIntent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, actualTriggerTime, pendingIntent)
+                } else {
+                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, actualTriggerTime, pendingIntent)
+                }
+            } catch (e2: Exception) {
+                alarmManager.set(AlarmManager.RTC_WAKEUP, actualTriggerTime, pendingIntent)
+            }
         }
     }
 

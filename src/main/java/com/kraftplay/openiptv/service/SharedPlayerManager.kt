@@ -116,11 +116,7 @@ object SharedPlayerManager {
     fun ensureServiceRunning(context: Context) {
         val intent = Intent(context, PlaybackService::class.java)
         runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            context.startService(intent)
         }
     }
 

@@ -1,18 +1,13 @@
 package com.kraftplay.openiptv.service
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
-import androidx.core.app.NotificationCompat
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -72,58 +67,27 @@ open class PlaybackService : MediaLibraryService() {
     private var retryCount = 0
     private var lastBrowsedList: List<IptvChannel> = emptyList()
 
-    private fun promoteToForeground() {
+    override fun onCreate() {
+        super.onCreate()
+
         runCatching {
-            val channelId = "playback_service_channel"
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
-                    channelId,
-                    "OpenAUDIO Playback",
-                    NotificationManager.IMPORTANCE_LOW
-                )
-                notificationManager.createNotificationChannel(channel)
-            }
+            val player = SharedPlayerManager.getOrCreatePlayer(this)
+            val sessionId = "OpenIPTVSession_${this.javaClass.simpleName}_${System.identityHashCode(this)}"
+            val builder = MediaLibrarySession.Builder(this, player, LibraryCallback())
+                .setId(sessionId)
 
-            val notification = NotificationCompat.Builder(this, channelId)
-                .setContentTitle("OpenAUDIO")
-                .setContentText("IPTV Audio Service")
-                .setSmallIcon(com.kraftplay.openiptv.R.mipmap.ic_launcher)
-                .setOngoing(true)
-                .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-                .build()
+            getPendingActivityIntent()?.let { builder.setSessionActivity(it) }
+            mediaLibrarySession = builder.build()
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    101,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-                )
-            } else {
-                startForeground(101, notification)
-            }
+            attachPlaybackRecovery(player)
+            loadData()
+            updateCustomLayout(player)
+        }.onFailure {
+            it.printStackTrace()
         }
     }
 
-    override fun onCreate() {
-        promoteToForeground()
-        super.onCreate()
-
-        val player = SharedPlayerManager.getOrCreatePlayer(this)
-        val sessionId = "OpenIPTVSession_${this.javaClass.simpleName}_${System.identityHashCode(this)}"
-        val builder = MediaLibrarySession.Builder(this, player, LibraryCallback())
-            .setId(sessionId)
-
-        getPendingActivityIntent()?.let { builder.setSessionActivity(it) }
-        mediaLibrarySession = builder.build()
-
-        attachPlaybackRecovery(player)
-        loadData()
-        updateCustomLayout(player)
-    }
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        promoteToForeground()
         return super.onStartCommand(intent, flags, startId)
     }
 
@@ -140,56 +104,62 @@ open class PlaybackService : MediaLibraryService() {
     }
 
     protected fun loadData() {
-        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
-        favoriteUrls = (prefs.getStringSet("favorites", emptySet()) ?: emptySet()).toMutableSet()
+        runCatching {
+            val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+            favoriteUrls = (prefs.getStringSet("favorites", emptySet()) ?: emptySet()).toMutableSet()
 
-        val cacheFile = File(cacheDir, "channels_cache.json")
-        if (cacheFile.exists()) {
-            runCatching {
-                val jsonText = cacheFile.readText()
-                if (jsonText.isNotBlank()) {
-                    cachedChannels = Json { ignoreUnknownKeys = true }.decodeFromString(jsonText)
+            val cacheFile = File(cacheDir, "channels_cache.json")
+            if (cacheFile.exists()) {
+                runCatching {
+                    val jsonText = cacheFile.readText()
+                    if (jsonText.isNotBlank()) {
+                        cachedChannels = Json { ignoreUnknownKeys = true }.decodeFromString(jsonText)
+                    }
                 }
             }
-        }
 
-        if (cachedChannels.isEmpty()) {
-            executor.execute {
-                val jsonStr = prefs.getString("playlists_json", "[]") ?: "[]"
-                val playlists = runCatching {
-                    Json { ignoreUnknownKeys = true }.decodeFromString<List<Playlist>>(jsonStr)
-                }.getOrDefault(emptyList())
+            if (cachedChannels.isEmpty()) {
+                executor.execute {
+                    val jsonStr = prefs.getString("playlists_json", "[]") ?: "[]"
+                    val playlists = runCatching {
+                        Json { ignoreUnknownKeys = true }.decodeFromString<List<Playlist>>(jsonStr)
+                    }.getOrDefault(emptyList())
 
-                val selected = playlists.find { it.isSelected && it.enabled }
-                    ?: playlists.firstOrNull { it.enabled }
-                    ?: playlists.firstOrNull()
+                    val selected = playlists.find { it.isSelected && it.enabled }
+                        ?: playlists.firstOrNull { it.enabled }
+                        ?: playlists.firstOrNull()
 
-                selected?.let { playlist ->
-                    runCatching {
-                        val request = Request.Builder().url(playlist.url).build()
-                        client.newCall(request).execute().use { response ->
-                            if (response.isSuccessful) {
-                                response.body?.let { body ->
-                                    val parsed = M3uParser.parse(body.byteStream())
-                                    cachedChannels = parsed
-                                    runCatching { cacheFile.writeText(Json.encodeToString(parsed)) }
-                                    notifyLibraryChanged()
+                    selected?.let { playlist ->
+                        runCatching {
+                            val request = Request.Builder().url(playlist.url).build()
+                            client.newCall(request).execute().use { response ->
+                                if (response.isSuccessful) {
+                                    response.body?.let { body ->
+                                        val parsed = M3uParser.parse(body.byteStream())
+                                        cachedChannels = parsed
+                                        runCatching { cacheFile.writeText(Json.encodeToString(parsed)) }
+                                        notifyLibraryChanged()
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            } else {
+                notifyLibraryChanged()
             }
-        } else {
-            notifyLibraryChanged()
         }
     }
 
     private fun notifyLibraryChanged() {
         mainHandler.post {
-            mediaLibrarySession?.notifyChildrenChanged(ROOT_ID, 4, null)
-            mediaLibrarySession?.notifyChildrenChanged(TAB_ALL, cachedChannels.size, null)
-            mediaLibrarySession?.notifyChildrenChanged(TAB_FAVORITES, favoriteUrls.size, null)
+            val session = mediaLibrarySession ?: return@post
+            runCatching {
+                session.notifyChildrenChanged(ROOT_ID, 4, null)
+                session.notifyChildrenChanged(TAB_ALL, cachedChannels.size, null)
+                session.notifyChildrenChanged(TAB_FAVORITES, favoriteUrls.size, null)
+                session.notifyChildrenChanged(TAB_RECENT, recentUrls().size, null)
+            }
         }
     }
 
@@ -231,57 +201,62 @@ open class PlaybackService : MediaLibraryService() {
     }
 
     private fun updateCustomLayout(player: Player) {
-        val session = mediaLibrarySession ?: return
-        val currentUrl = player.currentMediaItem?.mediaId.orEmpty()
-        val isFav = currentUrl.isNotEmpty() && favoriteUrls.contains(currentUrl)
+        runCatching {
+            val session = mediaLibrarySession ?: return
+            val currentUrl = player.currentMediaItem?.mediaId.orEmpty()
+            val isFav = currentUrl.isNotEmpty() && favoriteUrls.contains(currentUrl)
 
-        val favButton = CommandButton.Builder()
-            .setDisplayName(if (isFav) "Убрать из избранного" else "В избранное")
-            .setIconResId(
-                if (isFav) android.R.drawable.btn_star_big_on
-                else android.R.drawable.btn_star_big_off
-            )
-            .setSessionCommand(SessionCommand(CMD_TOGGLE_FAVORITE, Bundle.EMPTY))
-            .build()
+            val favButton = CommandButton.Builder()
+                .setDisplayName(if (isFav) "Убрать из избранного" else "В избранное")
+                .setIconResId(R.mipmap.ic_launcher)
+                .setSessionCommand(SessionCommand(CMD_TOGGLE_FAVORITE, Bundle.EMPTY))
+                .build()
 
-        val reloadButton = CommandButton.Builder()
-            .setDisplayName("Обновить поток")
-            .setIconResId(android.R.drawable.ic_popup_sync)
-            .setSessionCommand(SessionCommand(CMD_RELOAD_STREAM, Bundle.EMPTY))
-            .build()
+            val reloadButton = CommandButton.Builder()
+                .setDisplayName("Обновить поток")
+                .setIconResId(R.mipmap.ic_launcher)
+                .setSessionCommand(SessionCommand(CMD_RELOAD_STREAM, Bundle.EMPTY))
+                .build()
 
-        session.setCustomLayout(ImmutableList.of(favButton, reloadButton))
+            session.setCustomLayout(ImmutableList.of(favButton, reloadButton))
+        }
     }
 
     private fun toggleFavorite(url: String) {
         if (url.isBlank()) return
-        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
-        val updated = (prefs.getStringSet("favorites", emptySet()) ?: emptySet()).toMutableSet()
-        if (updated.contains(url)) {
-            updated.remove(url)
-        } else {
-            updated.add(url)
+        runCatching {
+            val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+            val updated = (prefs.getStringSet("favorites", emptySet()) ?: emptySet()).toMutableSet()
+            if (updated.contains(url)) {
+                updated.remove(url)
+            } else {
+                updated.add(url)
+            }
+            favoriteUrls = updated
+            prefs.edit().putStringSet("favorites", updated).apply()
+            notifyLibraryChanged()
+            currentPlayer()?.let { updateCustomLayout(it) }
         }
-        favoriteUrls = updated
-        prefs.edit().putStringSet("favorites", updated).apply()
-        mediaLibrarySession?.notifyChildrenChanged(TAB_FAVORITES, updated.size, null)
-        currentPlayer()?.let { updateCustomLayout(it) }
     }
 
     private fun recordRecent(url: String) {
-        val recents = LinkedHashSet<String>().apply { add(url) }
-        recents.addAll(recentUrls().filter { it != url })
-        getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
-            .edit()
-            .putString("recent_channels", recents.take(30).joinToString("\n"))
-            .apply()
-        mediaLibrarySession?.notifyChildrenChanged(TAB_RECENT, recents.size.coerceAtMost(30), null)
+        runCatching {
+            val recents = LinkedHashSet<String>().apply { add(url) }
+            recents.addAll(recentUrls().filter { it != url })
+            getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+                .edit()
+                .putString("recent_channels", recents.take(30).joinToString("\n"))
+                .apply()
+            notifyLibraryChanged()
+        }
     }
 
     private fun recentUrls(): List<String> =
-        getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
-            .getString("recent_channels", "").orEmpty()
-            .split("\n").filter { it.isNotEmpty() }
+        runCatching {
+            getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+                .getString("recent_channels", "").orEmpty()
+                .split("\n").filter { it.isNotEmpty() }
+        }.getOrDefault(emptyList())
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
 
@@ -289,15 +264,19 @@ open class PlaybackService : MediaLibraryService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
-            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
-                .buildUpon()
-                .add(SessionCommand(CMD_TOGGLE_FAVORITE, Bundle.EMPTY))
-                .add(SessionCommand(CMD_RELOAD_STREAM, Bundle.EMPTY))
-                .build()
+            return try {
+                val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+                    .buildUpon()
+                    .add(SessionCommand(CMD_TOGGLE_FAVORITE, Bundle.EMPTY))
+                    .add(SessionCommand(CMD_RELOAD_STREAM, Bundle.EMPTY))
+                    .build()
 
-            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                .setAvailableSessionCommands(sessionCommands)
-                .build()
+                MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                    .setAvailableSessionCommands(sessionCommands)
+                    .build()
+            } catch (e: Exception) {
+                MediaSession.ConnectionResult.AcceptedResultBuilder(session).build()
+            }
         }
 
         override fun onCustomCommand(
@@ -306,19 +285,23 @@ open class PlaybackService : MediaLibraryService() {
             customCommand: SessionCommand,
             args: Bundle
         ): ListenableFuture<SessionResult> {
-            when (customCommand.customAction) {
-                CMD_TOGGLE_FAVORITE -> {
-                    val currentUrl = session.player.currentMediaItem?.mediaId.orEmpty()
-                    toggleFavorite(currentUrl)
-                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            return try {
+                when (customCommand.customAction) {
+                    CMD_TOGGLE_FAVORITE -> {
+                        val currentUrl = session.player.currentMediaItem?.mediaId.orEmpty()
+                        toggleFavorite(currentUrl)
+                        Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    }
+                    CMD_RELOAD_STREAM -> {
+                        session.player.prepare()
+                        session.player.playWhenReady = true
+                        Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    }
+                    else -> super.onCustomCommand(session, controller, customCommand, args)
                 }
-                CMD_RELOAD_STREAM -> {
-                    session.player.prepare()
-                    session.player.playWhenReady = true
-                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-                }
+            } catch (e: Exception) {
+                Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
             }
-            return super.onCustomCommand(session, controller, customCommand, args)
         }
 
         override fun onMediaButtonEvent(
@@ -326,54 +309,58 @@ open class PlaybackService : MediaLibraryService() {
             controllerInfo: MediaSession.ControllerInfo,
             intent: android.content.Intent
         ): Boolean {
-            @Suppress("DEPRECATION")
-            val keyEvent = intent.getParcelableExtra<KeyEvent>(android.content.Intent.EXTRA_KEY_EVENT)
-            if (keyEvent != null && keyEvent.action == KeyEvent.ACTION_DOWN) {
-                val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
-                val nextAction = prefs.getString("wheel_next_action", "NextChannel") ?: "NextChannel"
-                val prevAction = prefs.getString("wheel_prev_action", "PrevChannel") ?: "PrevChannel"
+            return try {
+                @Suppress("DEPRECATION")
+                val keyEvent = intent.getParcelableExtra<KeyEvent>(android.content.Intent.EXTRA_KEY_EVENT)
+                if (keyEvent != null && keyEvent.action == KeyEvent.ACTION_DOWN) {
+                    val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+                    val nextAction = prefs.getString("wheel_next_action", "NextChannel") ?: "NextChannel"
+                    val prevAction = prefs.getString("wheel_prev_action", "PrevChannel") ?: "PrevChannel"
 
-                val player = session.player
-                when (keyEvent.keyCode) {
-                    KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                        when (nextAction) {
-                            "Skip10" -> player.seekTo((player.currentPosition + 10_000L).coerceAtMost(player.duration.coerceAtLeast(0L)))
-                            "Skip30" -> player.seekTo((player.currentPosition + 30_000L).coerceAtMost(player.duration.coerceAtLeast(0L)))
-                            "Skip60" -> player.seekTo((player.currentPosition + 60_000L).coerceAtMost(player.duration.coerceAtLeast(0L)))
-                            else -> if (player.hasNextMediaItem()) player.seekToNextMediaItem() else player.seekTo(0, 0L)
+                    val player = session.player
+                    when (keyEvent.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_NEXT -> {
+                            when (nextAction) {
+                                "Skip10" -> player.seekTo((player.currentPosition + 10_000L).coerceAtMost(player.duration.coerceAtLeast(0L)))
+                                "Skip30" -> player.seekTo((player.currentPosition + 30_000L).coerceAtMost(player.duration.coerceAtLeast(0L)))
+                                "Skip60" -> player.seekTo((player.currentPosition + 60_000L).coerceAtMost(player.duration.coerceAtLeast(0L)))
+                                else -> if (player.hasNextMediaItem()) player.seekToNextMediaItem() else player.seekTo(0, 0L)
+                            }
+                            return true
                         }
-                        return true
-                    }
-                    KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                        when (prevAction) {
-                            "Rewind10" -> player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
-                            "Rewind30" -> player.seekTo((player.currentPosition - 30_000L).coerceAtLeast(0L))
-                            "Rewind60" -> player.seekTo((player.currentPosition - 60_000L).coerceAtLeast(0L))
-                            else -> if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo((player.mediaItemCount - 1).coerceAtLeast(0), 0L)
+                        KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
+                            when (prevAction) {
+                                "Rewind10" -> player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
+                                "Rewind30" -> player.seekTo((player.currentPosition - 30_000L).coerceAtLeast(0L))
+                                "Rewind60" -> player.seekTo((player.currentPosition - 60_000L).coerceAtLeast(0L))
+                                else -> if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo((player.mediaItemCount - 1).coerceAtLeast(0), 0L)
+                            }
+                            return true
                         }
-                        return true
-                    }
-                    KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> {
-                        val chUpAction = prefs.getString("wheel_channel_up_action", "NextChannel") ?: "NextChannel"
-                        when (chUpAction) {
-                            "PrevChannel" -> if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo((player.mediaItemCount - 1).coerceAtLeast(0), 0L)
-                            "Skip10" -> player.seekTo((player.currentPosition + 10_000L).coerceAtMost(player.duration.coerceAtLeast(0L)))
-                            else -> if (player.hasNextMediaItem()) player.seekToNextMediaItem() else player.seekTo(0, 0L)
+                        KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> {
+                            val chUpAction = prefs.getString("wheel_channel_up_action", "NextChannel") ?: "NextChannel"
+                            when (chUpAction) {
+                                "PrevChannel" -> if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo((player.mediaItemCount - 1).coerceAtLeast(0), 0L)
+                                "Skip10" -> player.seekTo((player.currentPosition + 10_000L).coerceAtMost(player.duration.coerceAtLeast(0L)))
+                                else -> if (player.hasNextMediaItem()) player.seekToNextMediaItem() else player.seekTo(0, 0L)
+                            }
+                            return true
                         }
-                        return true
-                    }
-                    KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> {
-                        val chDownAction = prefs.getString("wheel_channel_down_action", "PrevChannel") ?: "PrevChannel"
-                        when (chDownAction) {
-                            "NextChannel" -> if (player.hasNextMediaItem()) player.seekToNextMediaItem() else player.seekTo(0, 0L)
-                            "Rewind10" -> player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
-                            else -> if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo((player.mediaItemCount - 1).coerceAtLeast(0), 0L)
+                        KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> {
+                            val chDownAction = prefs.getString("wheel_channel_down_action", "PrevChannel") ?: "PrevChannel"
+                            when (chDownAction) {
+                                "NextChannel" -> if (player.hasNextMediaItem()) player.seekToNextMediaItem() else player.seekTo(0, 0L)
+                                "Rewind10" -> player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
+                                else -> if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo((player.mediaItemCount - 1).coerceAtLeast(0), 0L)
+                            }
+                            return true
                         }
-                        return true
                     }
                 }
+                super.onMediaButtonEvent(session, controllerInfo, intent)
+            } catch (e: Exception) {
+                false
             }
-            return super.onMediaButtonEvent(session, controllerInfo, intent)
         }
 
         override fun onGetLibraryRoot(
@@ -381,30 +368,44 @@ open class PlaybackService : MediaLibraryService() {
             browser: MediaSession.ControllerInfo,
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<MediaItem>> {
-            val extras = Bundle().apply {
-                putBoolean(CONTENT_STYLE_SUPPORTED, true)
-                putInt(CONTENT_STYLE_BROWSABLE_HINT, CONTENT_STYLE_GRID_ITEM_HINT_VALUE)
-                putInt(CONTENT_STYLE_PLAYABLE_HINT, CONTENT_STYLE_LIST_ITEM_HINT_VALUE)
-                putBoolean(EXTRA_MEDIA_SEARCH_SUPPORTED, true)
+            return try {
+                val extras = Bundle().apply {
+                    putBoolean(CONTENT_STYLE_SUPPORTED, true)
+                    putInt(CONTENT_STYLE_BROWSABLE_HINT, CONTENT_STYLE_GRID_ITEM_HINT_VALUE)
+                    putInt(CONTENT_STYLE_PLAYABLE_HINT, CONTENT_STYLE_LIST_ITEM_HINT_VALUE)
+                    putBoolean(EXTRA_MEDIA_SEARCH_SUPPORTED, true)
+                }
+
+                val rootItem = MediaItem.Builder()
+                    .setMediaId(ROOT_ID)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(getString(R.string.app_name_audio))
+                            .setIsBrowsable(true)
+                            .setIsPlayable(false)
+                            .setExtras(extras)
+                            .build()
+                    )
+                    .build()
+
+                val rootParams = LibraryParams.Builder()
+                    .setExtras(extras)
+                    .build()
+
+                Futures.immediateFuture(LibraryResult.ofItem(rootItem, rootParams))
+            } catch (e: Exception) {
+                val fallbackItem = MediaItem.Builder()
+                    .setMediaId(ROOT_ID)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle("OpenAUDIO")
+                            .setIsBrowsable(true)
+                            .setIsPlayable(false)
+                            .build()
+                    )
+                    .build()
+                Futures.immediateFuture(LibraryResult.ofItem(fallbackItem, params))
             }
-
-            val rootItem = MediaItem.Builder()
-                .setMediaId(ROOT_ID)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(getString(R.string.app_name_audio))
-                        .setIsBrowsable(true)
-                        .setIsPlayable(false)
-                        .setExtras(extras)
-                        .build()
-                )
-                .build()
-
-            val rootParams = LibraryParams.Builder()
-                .setExtras(extras)
-                .build()
-
-            return Futures.immediateFuture(LibraryResult.ofItem(rootItem, rootParams))
         }
 
         override fun onGetChildren(
@@ -415,66 +416,72 @@ open class PlaybackService : MediaLibraryService() {
             pageSize: Int,
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-            val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
-            favoriteUrls = (prefs.getStringSet("favorites", emptySet()) ?: emptySet()).toMutableSet()
+            return try {
+                val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+                favoriteUrls = (prefs.getStringSet("favorites", emptySet()) ?: emptySet()).toMutableSet()
 
-            val items = mutableListOf<MediaItem>()
+                val items = mutableListOf<MediaItem>()
 
-            when {
-                parentId == ROOT_ID -> {
-                    items.add(createBrowsableTab(TAB_FAVORITES, "Избранное", android.R.drawable.btn_star_big_on))
-                    items.add(createBrowsableTab(TAB_RECENT, "Недавние", android.R.drawable.ic_menu_recent_history))
-                    items.add(createBrowsableTab(TAB_FOLDERS, "Папки", android.R.drawable.ic_menu_sort_by_size))
-                    items.add(createBrowsableTab(TAB_ALL, "Все каналы", R.mipmap.ic_launcher))
-                }
+                when {
+                    parentId == ROOT_ID -> {
+                        items.add(createBrowsableTab(TAB_FAVORITES, "Избранное"))
+                        items.add(createBrowsableTab(TAB_RECENT, "Недавние"))
+                        items.add(createBrowsableTab(TAB_FOLDERS, "Папки"))
+                        items.add(createBrowsableTab(TAB_ALL, "Все каналы"))
+                    }
 
-                parentId == TAB_FAVORITES -> {
-                    val favChannels = cachedChannels.filter { favoriteUrls.contains(it.url) }
-                    lastBrowsedList = favChannels
-                    favChannels.forEach { items.add(createPlayableItem(it)) }
-                }
+                    parentId == TAB_FAVORITES -> {
+                        val favChannels = cachedChannels.filter { favoriteUrls.contains(it.url) }
+                        lastBrowsedList = favChannels
+                        favChannels.forEach { items.add(createPlayableItem(it)) }
+                    }
 
-                parentId == TAB_RECENT -> {
-                    val recents = recentUrls()
-                    val recentChannels = cachedChannels
-                        .filter { recents.contains(it.url) }
-                        .sortedBy { recents.indexOf(it.url) }
-                    lastBrowsedList = recentChannels
-                    recentChannels.forEach { items.add(createPlayableItem(it)) }
-                }
+                    parentId == TAB_RECENT -> {
+                        val recents = recentUrls()
+                        val recentChannels = cachedChannels
+                            .filter { recents.contains(it.url) }
+                            .sortedBy { recents.indexOf(it.url) }
+                        lastBrowsedList = recentChannels
+                        recentChannels.forEach { items.add(createPlayableItem(it)) }
+                    }
 
-                parentId == TAB_ALL -> {
-                    lastBrowsedList = cachedChannels
-                    cachedChannels.forEach { items.add(createPlayableItem(it)) }
-                }
+                    parentId == TAB_ALL -> {
+                        lastBrowsedList = cachedChannels
+                        cachedChannels.forEach { items.add(createPlayableItem(it)) }
+                    }
 
-                parentId == TAB_FOLDERS -> {
-                    val categories = cachedChannels
-                        .map { it.category?.takeIf { c -> c.isNotBlank() } ?: "Общие" }
-                        .distinct()
-                    categories.forEach { category ->
-                        val count = cachedChannels.count {
+                    parentId == TAB_FOLDERS -> {
+                        val categories = cachedChannels
+                            .map { it.category?.takeIf { c -> c.isNotBlank() } ?: "Общие" }
+                            .distinct()
+                        categories.forEach { category ->
+                            val count = cachedChannels.count {
+                                (it.category?.takeIf { c -> c.isNotBlank() } ?: "Общие") == category
+                            }
+                            items.add(createBrowsableFolder("$CAT_PREFIX$category", category, "$count каналов"))
+                        }
+                    }
+
+                    parentId.startsWith(CAT_PREFIX) -> {
+                        val category = parentId.removePrefix(CAT_PREFIX)
+                        val folderChannels = cachedChannels.filter {
                             (it.category?.takeIf { c -> c.isNotBlank() } ?: "Общие") == category
                         }
-                        items.add(createBrowsableFolder("$CAT_PREFIX$category", category, "$count каналов"))
+                        lastBrowsedList = folderChannels
+                        folderChannels.forEach { items.add(createPlayableItem(it)) }
                     }
                 }
 
-                parentId.startsWith(CAT_PREFIX) -> {
-                    val category = parentId.removePrefix(CAT_PREFIX)
-                    val folderChannels = cachedChannels.filter {
-                        (it.category?.takeIf { c -> c.isNotBlank() } ?: "Общие") == category
-                    }
-                    lastBrowsedList = folderChannels
-                    folderChannels.forEach { items.add(createPlayableItem(it)) }
-                }
+                val effectivePageSize = if (pageSize <= 0) 50 else pageSize
+                val fromIndex = (page * effectivePageSize).coerceAtMost(items.size)
+                val toIndex = ((page + 1) * effectivePageSize).coerceAtMost(items.size)
+                val paged = if (fromIndex < toIndex) items.subList(fromIndex, toIndex) else emptyList()
+
+                Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(paged), params))
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.of(), params))
             }
-
-            val fromIndex = (page * pageSize).coerceAtMost(items.size)
-            val toIndex = ((page + 1) * pageSize).coerceAtMost(items.size)
-            val paged = if (fromIndex < toIndex) items.subList(fromIndex, toIndex) else emptyList()
-
-            return Futures.immediateFuture(LibraryResult.ofItemList(paged, params))
         }
 
         override fun onSearch(
@@ -483,12 +490,16 @@ open class PlaybackService : MediaLibraryService() {
             query: String,
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<Void>> {
-            val q = query.trim().lowercase()
-            val count = cachedChannels.count {
-                it.name.lowercase().contains(q) || (it.tvgName ?: "").lowercase().contains(q)
+            return try {
+                val q = query.trim().lowercase()
+                val count = cachedChannels.count {
+                    it.name.lowercase().contains(q) || (it.tvgName ?: "").lowercase().contains(q)
+                }
+                session.notifySearchResultChanged(browser, query, count, params)
+                Futures.immediateFuture(LibraryResult.ofVoid(params))
+            } catch (e: Exception) {
+                Futures.immediateFuture(LibraryResult.ofVoid(params))
             }
-            session.notifySearchResultChanged(browser, query, count, params)
-            return Futures.immediateFuture(LibraryResult.ofVoid(params))
         }
 
         override fun onGetSearchResult(
@@ -499,13 +510,17 @@ open class PlaybackService : MediaLibraryService() {
             pageSize: Int,
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-            val q = query.trim().lowercase()
-            val matched = cachedChannels.filter {
-                it.name.lowercase().contains(q) || (it.tvgName ?: "").lowercase().contains(q)
+            return try {
+                val q = query.trim().lowercase()
+                val matched = cachedChannels.filter {
+                    it.name.lowercase().contains(q) || (it.tvgName ?: "").lowercase().contains(q)
+                }
+                lastBrowsedList = matched
+                val result = matched.map { createPlayableItem(it) }
+                Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(result), params))
+            } catch (e: Exception) {
+                Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.of(), params))
             }
-            lastBrowsedList = matched
-            val result = matched.map { createPlayableItem(it) }
-            return Futures.immediateFuture(LibraryResult.ofItemList(result, params))
         }
 
         override fun onSetMediaItems(
@@ -515,28 +530,32 @@ open class PlaybackService : MediaLibraryService() {
             startIndex: Int,
             startPositionMs: Long
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-            val selectedItem = mediaItems.firstOrNull()
-                ?: return super.onSetMediaItems(mediaSession, controller, mediaItems, startIndex, startPositionMs)
+            return try {
+                val selectedItem = mediaItems.firstOrNull()
+                    ?: return super.onSetMediaItems(mediaSession, controller, mediaItems, startIndex, startPositionMs)
 
-            val selectedUrl = selectedItem.mediaId
-            val queueSource = if (lastBrowsedList.any { it.url == selectedUrl }) {
-                lastBrowsedList
-            } else {
-                cachedChannels
+                val selectedUrl = selectedItem.mediaId
+                val queueSource = if (lastBrowsedList.any { it.url == selectedUrl }) {
+                    lastBrowsedList
+                } else {
+                    cachedChannels
+                }
+
+                if (queueSource.isNotEmpty()) {
+                    val queue = queueSource.map { createPlayableItem(it) }
+                    val targetIndex = queueSource.indexOfFirst { it.url == selectedUrl }.coerceAtLeast(0)
+                    Futures.immediateFuture(
+                        MediaSession.MediaItemsWithStartPosition(ImmutableList.copyOf(queue), targetIndex, C.TIME_UNSET)
+                    )
+                } else {
+                    val fallback = SharedPlayerManager.buildMediaItem(selectedUrl, null)
+                    Futures.immediateFuture(
+                        MediaSession.MediaItemsWithStartPosition(ImmutableList.of(fallback), 0, C.TIME_UNSET)
+                    )
+                }
+            } catch (e: Exception) {
+                super.onSetMediaItems(mediaSession, controller, mediaItems, startIndex, startPositionMs)
             }
-
-            if (queueSource.isNotEmpty()) {
-                val queue = queueSource.map { createPlayableItem(it) }
-                val targetIndex = queueSource.indexOfFirst { it.url == selectedUrl }.coerceAtLeast(0)
-                return Futures.immediateFuture(
-                    MediaSession.MediaItemsWithStartPosition(queue, targetIndex, C.TIME_UNSET)
-                )
-            }
-
-            val fallback = SharedPlayerManager.buildMediaItem(selectedUrl, null)
-            return Futures.immediateFuture(
-                MediaSession.MediaItemsWithStartPosition(listOf(fallback), 0, C.TIME_UNSET)
-            )
         }
 
         override fun onAddMediaItems(
@@ -544,20 +563,24 @@ open class PlaybackService : MediaLibraryService() {
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>
         ): ListenableFuture<MutableList<MediaItem>> {
-            val updated = mediaItems.map { item ->
-                if (item.localConfiguration == null) {
-                    MediaItem.Builder()
-                        .setMediaId(item.mediaId)
-                        .setUri(item.mediaId)
-                        .setMediaMetadata(item.mediaMetadata)
-                        .build()
-                } else item
-            }.toMutableList()
-            return Futures.immediateFuture(updated)
+            return try {
+                val updated = mediaItems.map { item ->
+                    if (item.localConfiguration == null) {
+                        MediaItem.Builder()
+                            .setMediaId(item.mediaId)
+                            .setUri(item.mediaId)
+                            .setMediaMetadata(item.mediaMetadata)
+                            .build()
+                    } else item
+                }.toMutableList()
+                Futures.immediateFuture(updated)
+            } catch (e: Exception) {
+                Futures.immediateFuture(mediaItems)
+            }
         }
 
-        private fun createBrowsableTab(id: String, title: String, iconRes: Int): MediaItem {
-            val iconUri = Uri.parse("android.resource://$packageName/$iconRes")
+        private fun createBrowsableTab(id: String, title: String): MediaItem {
+            val iconUri = Uri.parse("android.resource://$packageName/${R.mipmap.ic_launcher}")
             return MediaItem.Builder()
                 .setMediaId(id)
                 .setMediaMetadata(
@@ -598,10 +621,12 @@ open class PlaybackService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = mediaLibrarySession
 
     override fun onDestroy() {
-        mediaLibrarySession?.release()
-        mediaLibrarySession = null
-        SharedPlayerManager.releasePlayer()
-        executor.shutdown()
+        runCatching {
+            mediaLibrarySession?.release()
+            mediaLibrarySession = null
+            SharedPlayerManager.releasePlayer()
+            executor.shutdown()
+        }
         super.onDestroy()
     }
 }

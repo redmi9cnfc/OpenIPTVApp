@@ -44,10 +44,7 @@ object EpgMatcher {
         if (programs.isNullOrEmpty()) return null
         for (i in programs.indices) {
             val p = programs[i]
-            if (now < p.startTime) {
-                break
-            }
-            if (now < p.endTime) {
+            if (now >= p.startTime && now < p.endTime) {
                 return p
             }
         }
@@ -132,12 +129,15 @@ object EpgMatcher {
             ?: epgCleanNameMap[cleanName(id)]
             ?: epgTranslitNameMap[transliterate(cleanName(id))]
             ?: emptyList()
+        var candidate: EpgProgram? = null
         for (i in progs.indices) {
             val p = progs[i]
             if (p.startTime >= currentMatch.endTime) {
-                return p
+                if (candidate == null || p.startTime < candidate.startTime) {
+                    candidate = p
+                }
             }
         }
-        return null
+        return candidate
     }
 }

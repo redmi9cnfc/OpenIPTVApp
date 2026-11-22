@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
@@ -38,6 +39,7 @@ fun WifiTransferDialog(viewModel: MainViewModel, onDismiss: () -> Unit) {
     var mode by remember { mutableStateOf("choose") }
     var status by remember { mutableStateOf(context.getString(R.string.wifi_dialog_choose_action)) }
     var busy by remember { mutableStateOf(false) }
+    var showCameraScanner by remember { mutableStateOf(false) }
     val devices = remember { mutableStateListOf<NsdServiceInfo>() }
     var registration by remember { mutableStateOf<NsdManager.RegistrationListener?>(null) }
     var discovery by remember { mutableStateOf<NsdManager.DiscoveryListener?>(null) }
@@ -105,17 +107,37 @@ fun WifiTransferDialog(viewModel: MainViewModel, onDismiss: () -> Unit) {
                 when (mode) {
                     "choose" -> {
                         Text("Передача плейлистов, EPG и ВСЕХ настроек приложения:")
-                        Button(onClick = { mode = "show_qr" }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Send, null); Spacer(Modifier.width(8.dp)); Text("Показать мой QR-код")
+                        Button(
+                            onClick = { showCameraScanner = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.QrCodeScanner, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Принять по QR (Сканировать камерой)")
+                        }
+                        Button(
+                            onClick = { mode = "show_qr" },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                        ) {
+                            Icon(Icons.Default.Send, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Отдать по QR (Показать мой код)")
                         }
                         OutlinedButton(onClick = { mode = "scan_qr" }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Download, null); Spacer(Modifier.width(8.dp)); Text("Сканировать / Импортировать QR-код")
+                            Icon(Icons.Default.Download, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Вставить текст QR-кода / JSON")
                         }
                         OutlinedButton(onClick = { startDiscovery() }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Wifi, null); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.wifi_dialog_send_choose))
+                            Icon(Icons.Default.Wifi, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.wifi_dialog_send_choose))
                         }
                         OutlinedButton(onClick = { startReceiver() }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Devices, null); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.wifi_dialog_receive_this))
+                            Icon(Icons.Default.Devices, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.wifi_dialog_receive_this))
                         }
                     }
                     "show_qr", "receive" -> {
@@ -133,14 +155,24 @@ fun WifiTransferDialog(viewModel: MainViewModel, onDismiss: () -> Unit) {
                                 modifier = Modifier.size(190.dp)
                             )
                             Text("Покажите этот QR-код второму устройству для передачи ВСЕХ плейлистов, EPG и настроек", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            OutlinedButton(onClick = { mode = "scan_qr" }) {
-                                Icon(Icons.Default.Download, null); Spacer(Modifier.width(6.dp)); Text("Переключить на Импорт / Сканирование QR")
+                            Button(onClick = { showCameraScanner = true }, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Default.QrCodeScanner, null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Включить камеру для сканирования")
                             }
                         }
                     }
                     "scan_qr" -> {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Text("Вставьте текст QR-кода / JSON дампа со второго устройства:")
+                            Button(
+                                onClick = { showCameraScanner = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.QrCodeScanner, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Открыть мини-камеру сканера QR")
+                            }
+                            Text("Или вставьте текст QR-кода / JSON дампа со второго устройства:")
                             OutlinedTextField(
                                 value = qrScanInput,
                                 onValueChange = { qrScanInput = it },
@@ -148,7 +180,7 @@ fun WifiTransferDialog(viewModel: MainViewModel, onDismiss: () -> Unit) {
                                 modifier = Modifier.fillMaxWidth().height(100.dp)
                             )
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
+                                OutlinedButton(
                                     onClick = {
                                         val clip = clipboardManager.getText()?.text
                                         if (!clip.isNullOrBlank()) {
@@ -164,8 +196,8 @@ fun WifiTransferDialog(viewModel: MainViewModel, onDismiss: () -> Unit) {
                                         if (qrScanInput.isNotBlank()) {
                                             busy = true
                                             scope.launch {
-                                                val success = viewModel.importBackupJson(qrScanInput)
-                                                status = if (success) "ВСЕ плейлисты, EPG и настройки успешно применены!" else "Ошибка импорта данных QR"
+                                                val res = processAndApplyQrCode(context, viewModel, qrScanInput)
+                                                status = res
                                                 busy = false
                                             }
                                         }
@@ -229,4 +261,11 @@ fun WifiTransferDialog(viewModel: MainViewModel, onDismiss: () -> Unit) {
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.wifi_dialog_done)) } },
         dismissButton = { if (mode != "choose") TextButton(onClick = { cleanup(); mode = "choose"; status = context.getString(R.string.wifi_dialog_choose_action) }) { Text(stringResource(R.string.wifi_dialog_back)) } }
     )
+
+    if (showCameraScanner) {
+        QrCodeScannerDialog(
+            viewModel = viewModel,
+            onDismiss = { showCameraScanner = false }
+        )
+    }
 }

@@ -200,6 +200,13 @@
     <string name="back_exit">Выход</string>
     <string name="back_to_list">Назад к списку</string>
     <string name="back_confirm">Подтверждение</string>
+    <string name="press_again_to_exit">Нажмите «Назад» ещё раз для выхода</string>
+    <string name="continue_watching">Продолжить просмотр</string>
+    <string name="clear_cache">Очистить кэш</string>
+    <string name="clear_cache_subtitle">Освободить временные файлы без удаления плейлистов и настроек</string>
+    <string name="clear_cache_confirm">Очистить временные файлы кэша? Плейлисты, избранное и настройки сохранятся.</string>
+    <string name="cache_cleared">Кэш очищен</string>
+    <string name="cache_cleared_bytes">Кэш очищен: освобождено %1$d байт</string>
     <string name="backup_copied">Резервная копия скопирована в буфер обмена!</string>
     <string name="community">Сообщество и проект</string>
 

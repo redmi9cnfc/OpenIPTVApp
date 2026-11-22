@@ -205,7 +205,7 @@ fun SettingsScreen(
         }
         val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
         if (Build.VERSION.SDK_INT >= 33) {
-            context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+            androidx.core.content.ContextCompat.registerReceiver(context, receiver, filter, androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             context.registerReceiver(receiver, filter)
@@ -216,10 +216,14 @@ fun SettingsScreen(
     // Dialog state variables
     var showAddPlaylistDialog by remember { mutableStateOf(false) }
     var showWifiDeviceTransfer by remember { mutableStateOf(false) }
+    var showQrScannerDialog by remember { mutableStateOf(false) }
+    var showQrExportDialog by remember { mutableStateOf(false) }
+    var showReceiveQrDialog by remember { mutableStateOf(false) }
     var showAddEpgDialog by remember { mutableStateOf(false) }
     var showCategoryDialog by remember { mutableStateOf(false) }
     var showChannelDialog by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
+    var showClearCacheDialog by remember { mutableStateOf(false) }
     var showCustomUiDialog by remember { mutableStateOf(false) }
     var customJsonText by remember { mutableStateOf(customThemeJson) }
 
@@ -1409,10 +1413,40 @@ fun SettingsScreen(
 
                             SettingsPage.BACKUP -> {
                                 item {
-                                    SettingsSection(title = "Резервная копия и сеть") {
+                                    SettingsSection(title = "Резервная копия, сеть и QR-коды") {
+                                        ActionItem(
+                                            icon = Icons.Rounded.QrCodeScanner,
+                                            title = "Принять настройки по QR-коду (Сканировать)",
+                                            subtitle = "Включить мини-камеру для сканирования и импорта ВСЕХ настроек, плейлистов и EPG",
+                                            onClick = { showQrScannerDialog = true },
+                                            shapeName = badgeShape,
+                                            badgeColorName = badgeColor,
+                                            rotationEnabled = iconRotationEnabled
+                                        )
+
+                                        ActionItem(
+                                            icon = Icons.Rounded.QrCodeScanner,
+                                            title = "Принять настройки по QR-коду (Показать QR)",
+                                            subtitle = "Показать QR-код для получения ВСЕХ настроек, плейлистов и EPG со второго устройства",
+                                            onClick = { showReceiveQrDialog = true },
+                                            shapeName = badgeShape,
+                                            badgeColorName = badgeColor,
+                                            rotationEnabled = iconRotationEnabled
+                                        )
+
+                                        ActionItem(
+                                            icon = Icons.Rounded.QrCode,
+                                            title = "Отдать настройки по QR-коду (Показать)",
+                                            subtitle = "Сгенерировать QR-код для передачи ВСЕХ настроек, плейлистов и EPG на другое устройство",
+                                            onClick = { showQrExportDialog = true },
+                                            shapeName = badgeShape,
+                                            badgeColorName = badgeColor,
+                                            rotationEnabled = iconRotationEnabled
+                                        )
+
                                         ActionItem(
                                             icon = Icons.Rounded.FileUpload,
-                                            title = "Экспорт настроек",
+                                            title = "Экспорт настроек (Текст)",
                                             subtitle = "Скопировать резервную копию в буфер обмена",
                                             onClick = {
                                                 val json = viewModel.exportBackupJson()
@@ -1426,7 +1460,7 @@ fun SettingsScreen(
 
                                         ActionItem(
                                             icon = Icons.Rounded.FileDownload,
-                                            title = "Импорт настроек",
+                                            title = "Импорт настроек (Текст)",
                                             subtitle = "Восстановить настройки из текста JSON",
                                             onClick = { showImportDialog = true },
                                             shapeName = badgeShape,
@@ -1436,9 +1470,19 @@ fun SettingsScreen(
 
                                         ActionItem(
                                             icon = Icons.Rounded.Wifi,
-                                            title = "Передача по Wi-Fi",
-                                            subtitle = "Передача настроек между устройствами по локальной сети",
+                                            title = "Передача по Wi-Fi / QR",
+                                            subtitle = "Передача настроек между устройствами по локальной сети или QR",
                                             onClick = { showWifiDeviceTransfer = true },
+                                            shapeName = badgeShape,
+                                            badgeColorName = badgeColor,
+                                            rotationEnabled = iconRotationEnabled
+                                        )
+
+                                        ActionItem(
+                                            icon = Icons.Rounded.CleaningServices,
+                                            title = androidx.compose.ui.res.stringResource(R.string.clear_cache),
+                                            subtitle = androidx.compose.ui.res.stringResource(R.string.clear_cache_subtitle),
+                                            onClick = { showClearCacheDialog = true },
                                             shapeName = badgeShape,
                                             badgeColorName = badgeColor,
                                             rotationEnabled = iconRotationEnabled
@@ -1779,8 +1823,46 @@ fun SettingsScreen(
                 )
             }
 
+            if (showClearCacheDialog) {
+                AlertDialog(
+                    onDismissRequest = { showClearCacheDialog = false },
+                    title = { Text(androidx.compose.ui.res.stringResource(R.string.clear_cache)) },
+                    text = { Text(androidx.compose.ui.res.stringResource(R.string.clear_cache_confirm)) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showClearCacheDialog = false
+                            scope.launch(Dispatchers.IO) {
+                                val freed = com.kraftplay.openiptv.util.clearCacheFiles(context.cacheDir)
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, context.getString(R.string.cache_cleared_bytes, freed), Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }) {
+                            Text(androidx.compose.ui.res.stringResource(R.string.clear_cache))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showClearCacheDialog = false }) {
+                            Text(androidx.compose.ui.res.stringResource(android.R.string.cancel))
+                        }
+                    }
+                )
+            }
+
             if (showWifiDeviceTransfer) {
                 WifiTransferDialog(viewModel = viewModel, onDismiss = { showWifiDeviceTransfer = false })
+            }
+
+            if (showQrScannerDialog) {
+                QrCodeScannerDialog(viewModel = viewModel, onDismiss = { showQrScannerDialog = false })
+            }
+
+            if (showQrExportDialog) {
+                ShowQrCodeDialog(viewModel = viewModel, onDismiss = { showQrExportDialog = false })
+            }
+
+            if (showReceiveQrDialog) {
+                ShowReceiveQrDialog(viewModel = viewModel, onDismiss = { showReceiveQrDialog = false })
             }
 
             if (showAddPlaylistDialog) {

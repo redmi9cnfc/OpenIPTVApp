@@ -197,6 +197,13 @@
     <string name="back_exit">Exit</string>
     <string name="back_to_list">Back to list</string>
     <string name="back_confirm">Confirm</string>
+    <string name="press_again_to_exit">Press again to exit</string>
+    <string name="continue_watching">Continue watching</string>
+    <string name="clear_cache">Clear cache</string>
+    <string name="clear_cache_subtitle">Free temporary files without deleting playlists or settings</string>
+    <string name="clear_cache_confirm">Clear temporary cache files? Playlists, favorites and settings are kept.</string>
+    <string name="cache_cleared">Cache cleared</string>
+    <string name="cache_cleared_bytes">Cache cleared: %1$d bytes freed</string>
     <string name="backup_copied">Backup copied to clipboard!</string>
     <string name="community">Community and project</string>
 

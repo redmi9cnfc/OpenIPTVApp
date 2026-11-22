@@ -4,72 +4,59 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import java.util.EnumMap
 
 object QrCodeGenerator {
 
     /**
-     * Создает визуальную матрицу QR-кода на основе входящего текста / URL ссылки.
+     * Создает полноценный стандартный QR-код с использованием ZXing QRCodeWriter.
      */
-    fun generateQrBitmap(content: String, width: Int = 400, height: Int = 400): ImageBitmap {
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val hash = content.hashCode()
-        val size = 25
-        val moduleSize = width / size
-
-        // Заполняем фон белым цветом
-        for (x in 0 until width) {
-            for (y in 0 until height) {
-                bitmap.setPixel(x, y, Color.WHITE)
+    fun generateQrBitmapAndroid(content: String, width: Int = 512, height: Int = 512): Bitmap {
+        if (content.isBlank()) {
+            return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+                eraseColor(Color.WHITE)
             }
         }
-
-        // Отрисовка служебных меток углов (Finder Patterns)
-        fun drawFinderPattern(startX: Int, startY: Int) {
-            for (dx in 0 until 7) {
-                for (dy in 0 until 7) {
-                    val isBorder = dx == 0 || dx == 6 || dy == 0 || dy == 6
-                    val isCenter = dx in 2..4 && dy in 2..4
-                    val isBlack = isBorder || isCenter
-                    val pixelColor = if (isBlack) Color.BLACK else Color.WHITE
-                    
-                    val pxStart = (startX + dx) * moduleSize
-                    val pyStart = (startY + dy) * moduleSize
-                    for (x in pxStart until (pxStart + moduleSize).coerceAtMost(width)) {
-                        for (y in pyStart until (pyStart + moduleSize).coerceAtMost(height)) {
-                            bitmap.setPixel(x, y, pixelColor)
-                        }
-                    }
+        val safeContent = if (content.length > 2500) content.take(2500) else content
+        return try {
+            encodeQr(safeContent, width, height)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            try {
+                encodeQr(content.take(1500), width, height)
+            } catch (e2: Exception) {
+                e2.printStackTrace()
+                Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+                    eraseColor(Color.WHITE)
                 }
             }
         }
+    }
 
-        drawFinderPattern(1, 1)
-        drawFinderPattern(size - 8, 1)
-        drawFinderPattern(1, size - 8)
-
-        // Генерируем информационные модули на основе хеша и байтов контента
-        val bytes = content.toByteArray()
-        for (row in 0 until size) {
-            for (col in 0 until size) {
-                // Пропускаем служебные метки углов
-                if ((row < 9 && col < 9) || (row < 9 && col >= size - 9) || (row >= size - 9 && col < 9)) continue
-                
-                val index = (row * size + col)
-                val byteVal = if (bytes.isNotEmpty()) bytes[index % bytes.size].toInt() else 0
-                val isBlack = ((index xor hash xor byteVal) % 3) == 0
-
-                if (isBlack) {
-                    val pxStart = col * moduleSize
-                    val pyStart = row * moduleSize
-                    for (x in pxStart until (pxStart + moduleSize).coerceAtMost(width)) {
-                        for (y in pyStart until (pyStart + moduleSize).coerceAtMost(height)) {
-                            bitmap.setPixel(x, y, Color.BLACK)
-                        }
-                    }
-                }
+    private fun encodeQr(text: String, width: Int, height: Int): Bitmap {
+        val hints = EnumMap<EncodeHintType, Any>(EncodeHintType::class.java).apply {
+            put(EncodeHintType.CHARACTER_SET, "UTF-8")
+            put(EncodeHintType.MARGIN, 1)
+        }
+        val bitMatrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, width, height, hints)
+        val matrixWidth = bitMatrix.width
+        val matrixHeight = bitMatrix.height
+        val pixels = IntArray(matrixWidth * matrixHeight)
+        for (y in 0 until matrixHeight) {
+            val offset = y * matrixWidth
+            for (x in 0 until matrixWidth) {
+                pixels[offset + x] = if (bitMatrix[x, y]) Color.BLACK else Color.WHITE
             }
         }
+        return Bitmap.createBitmap(matrixWidth, matrixHeight, Bitmap.Config.ARGB_8888).apply {
+            setPixels(pixels, 0, matrixWidth, 0, 0, matrixWidth, matrixHeight)
+        }
+    }
 
-        return bitmap.asImageBitmap()
+    fun generateQrBitmap(content: String, width: Int = 512, height: Int = 512): ImageBitmap {
+        return generateQrBitmapAndroid(content, width, height).asImageBitmap()
     }
 }
