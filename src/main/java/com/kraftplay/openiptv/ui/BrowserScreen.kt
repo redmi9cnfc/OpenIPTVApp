@@ -60,7 +60,7 @@ fun BrowserScreen(
     val context = LocalContext.current
     var webView: WebView? by remember { mutableStateOf(null) }
     var currentUrl by remember { mutableStateOf(initialUrl) }
-    var pageTitle by remember { mutableStateOf("Браузер") }
+    var pageTitle by remember { mutableStateOf(tr("Браузер")) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var showKeyboardDialog by remember { mutableStateOf(false) }
@@ -447,11 +447,11 @@ fun BrowserScreen(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = Icons.Rounded.FullscreenExit,
-                            contentDescription = "Выйти из полноэкранного режима",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
+                                imageVector = Icons.Rounded.FullscreenExit,
+                                contentDescription = tr("Выйти из полноэкранного режима"),
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
                     }
                 }
             }

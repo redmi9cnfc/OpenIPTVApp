@@ -120,7 +120,7 @@ fun YouTubeScreen(onBack: () -> Unit) {
                             }) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                    contentDescription = "Назад к каналам",
+                                    contentDescription = tr("Назад к каналам"),
                                     tint = Color.White
                                 )
                             }
@@ -146,7 +146,7 @@ fun YouTubeScreen(onBack: () -> Unit) {
                             }) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
-                                    contentDescription = "Клавиатура поиска YouTube",
+                                    contentDescription = tr("Клавиатура поиска YouTube"),
                                     tint = Color.White
                                 )
                             }
@@ -161,7 +161,7 @@ fun YouTubeScreen(onBack: () -> Unit) {
                             }) {
                                 Icon(
                                     imageVector = Icons.Default.Mic,
-                                    contentDescription = "Голосовой поиск YouTube",
+                                    contentDescription = tr("Голосовой поиск YouTube"),
                                     tint = Color.White
                                 )
                             }
@@ -171,7 +171,7 @@ fun YouTubeScreen(onBack: () -> Unit) {
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.ChevronLeft,
-                                    contentDescription = "Назад в браузере",
+                                    contentDescription = tr("Назад в браузере"),
                                     tint = if (canGoBack) Color.White else Color.Gray
                                 )
                             }
@@ -181,7 +181,7 @@ fun YouTubeScreen(onBack: () -> Unit) {
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.ChevronRight,
-                                    contentDescription = "Вперед в браузере",
+                                    contentDescription = tr("Вперед в браузере"),
                                     tint = if (canGoForward) Color.White else Color.Gray
                                 )
                             }
@@ -190,14 +190,14 @@ fun YouTubeScreen(onBack: () -> Unit) {
                             }) {
                                 Icon(
                                     imageVector = Icons.Rounded.Home,
-                                    contentDescription = "Главная YouTube",
+                                    contentDescription = tr("Главная YouTube"),
                                     tint = Color.White
                                 )
                             }
                             IconButton(onClick = { webView?.reload() }) {
                                 Icon(
                                     imageVector = Icons.Rounded.Refresh,
-                                    contentDescription = "Обновить страницу",
+                                    contentDescription = tr("Обновить страницу"),
                                     tint = Color.White
                                 )
                             }

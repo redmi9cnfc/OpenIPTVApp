@@ -26,6 +26,7 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.kraftplay.openiptv.R
+import com.kraftplay.openiptv.ui.tr
 import com.kraftplay.openiptv.model.IptvChannel
 import com.kraftplay.openiptv.model.Playlist
 import com.kraftplay.openiptv.parser.M3uParser
@@ -207,13 +208,13 @@ open class PlaybackService : MediaLibraryService() {
             val isFav = currentUrl.isNotEmpty() && favoriteUrls.contains(currentUrl)
 
             val favButton = CommandButton.Builder()
-                .setDisplayName(if (isFav) "Убрать из избранного" else "В избранное")
+                .setDisplayName(if (isFav) tr("Убрать из избранного") else tr("В избранное"))
                 .setIconResId(R.mipmap.ic_launcher)
                 .setSessionCommand(SessionCommand(CMD_TOGGLE_FAVORITE, Bundle.EMPTY))
                 .build()
 
             val reloadButton = CommandButton.Builder()
-                .setDisplayName("Обновить поток")
+                .setDisplayName(tr("Обновить поток"))
                 .setIconResId(R.mipmap.ic_launcher)
                 .setSessionCommand(SessionCommand(CMD_RELOAD_STREAM, Bundle.EMPTY))
                 .build()
@@ -424,10 +425,10 @@ open class PlaybackService : MediaLibraryService() {
 
                 when {
                     parentId == ROOT_ID -> {
-                        items.add(createBrowsableTab(TAB_FAVORITES, "Избранное"))
-                        items.add(createBrowsableTab(TAB_RECENT, "Недавние"))
-                        items.add(createBrowsableTab(TAB_FOLDERS, "Папки"))
-                        items.add(createBrowsableTab(TAB_ALL, "Все каналы"))
+                        items.add(createBrowsableTab(TAB_FAVORITES, tr("Избранное")))
+                        items.add(createBrowsableTab(TAB_RECENT, tr("Недавние")))
+                        items.add(createBrowsableTab(TAB_FOLDERS, tr("Папки")))
+                        items.add(createBrowsableTab(TAB_ALL, tr("Все каналы")))
                     }
 
                     parentId == TAB_FAVORITES -> {
@@ -452,20 +453,20 @@ open class PlaybackService : MediaLibraryService() {
 
                     parentId == TAB_FOLDERS -> {
                         val categories = cachedChannels
-                            .map { it.category?.takeIf { c -> c.isNotBlank() } ?: "Общие" }
+                            .map { it.category?.takeIf { c -> c.isNotBlank() } ?: tr("Общие") }
                             .distinct()
                         categories.forEach { category ->
                             val count = cachedChannels.count {
-                                (it.category?.takeIf { c -> c.isNotBlank() } ?: "Общие") == category
+                                (it.category?.takeIf { c -> c.isNotBlank() } ?: tr("Общие")) == category
                             }
-                            items.add(createBrowsableFolder("$CAT_PREFIX$category", category, "$count каналов"))
+                            items.add(createBrowsableFolder("$CAT_PREFIX$category", category, tr("{0} каналов", count)))
                         }
                     }
 
                     parentId.startsWith(CAT_PREFIX) -> {
                         val category = parentId.removePrefix(CAT_PREFIX)
                         val folderChannels = cachedChannels.filter {
-                            (it.category?.takeIf { c -> c.isNotBlank() } ?: "Общие") == category
+                            (it.category?.takeIf { c -> c.isNotBlank() } ?: tr("Общие")) == category
                         }
                         lastBrowsedList = folderChannels
                         folderChannels.forEach { items.add(createPlayableItem(it)) }

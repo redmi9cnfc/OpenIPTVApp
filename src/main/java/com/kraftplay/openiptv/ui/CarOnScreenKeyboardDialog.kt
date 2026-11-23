@@ -87,7 +87,7 @@ fun CarOnScreenKeyboardDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = inputText.ifEmpty { "Введите текст..." },
+                            text = inputText.ifEmpty { tr("Введите текст...") },
                             color = if (inputText.isEmpty()) Color.Gray else Color.White,
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Medium,
@@ -253,7 +253,7 @@ fun CarOnScreenKeyboardDialog(
                             .clickable { inputText += " " },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Пробел", color = Color.Gray, fontSize = 14.sp)
+                        Text(tr("Пробел"), color = Color.Gray, fontSize = 14.sp)
                     }
 
                     // Кнопка Найти / Поиск
@@ -274,7 +274,7 @@ fun CarOnScreenKeyboardDialog(
                     ) {
                         Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Найти", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(tr("Найти"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     }
                 }
             }

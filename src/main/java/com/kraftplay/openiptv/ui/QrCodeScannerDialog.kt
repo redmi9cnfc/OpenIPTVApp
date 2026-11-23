@@ -117,7 +117,7 @@ fun getLocalIpv4Address(): String? = try {
 fun processAndApplyQrCode(context: Context, viewModel: MainViewModel, qrContent: String): String {
     val trimmed = qrContent.trim()
     if (trimmed.isBlank()) {
-        return "QR-код пуст"
+        return tr("QR-код пуст")
     }
 
     // 1. Проверяем, является ли это прямым HTTP-запросом передачи на второе устройство
@@ -134,12 +134,12 @@ fun processAndApplyQrCode(context: Context, viewModel: MainViewModel, qrContent:
             conn.setFixedLengthStreamingMode(data.size)
             conn.outputStream.use { it.write(data) }
             if (conn.responseCode == 200) {
-                "ВСЕ настройки, плейлисты и EPG успешно переданы на устройство!"
+                tr("ВСЕ настройки, плейлисты и EPG успешно переданы на устройство!")
             } else {
-                "Ошибка передачи на устройство (код ${conn.responseCode})"
+                tr("Ошибка передачи на устройство (код {0})", conn.responseCode)
             }
         } catch (e: Exception) {
-            "Ошибка отправки данных: ${e.localizedMessage}"
+            tr("Ошибка отправки данных: {0}", e.localizedMessage)
         }
     }
 
@@ -149,9 +149,9 @@ fun processAndApplyQrCode(context: Context, viewModel: MainViewModel, qrContent:
     ) {
         val success = viewModel.importBackupJson(trimmed)
         return if (success) {
-            "Успешно импортированы ВСЕ настройки, плейлисты и EPG!"
+            tr("Успешно импортированы ВСЕ настройки, плейлисты и EPG!")
         } else {
-            "Ошибка структуры резервной копии"
+            tr("Ошибка структуры резервной копии")
         }
     }
 
@@ -160,7 +160,7 @@ fun processAndApplyQrCode(context: Context, viewModel: MainViewModel, qrContent:
         val lower = trimmed.lowercase()
         if (lower.contains(".xml") || lower.contains(".xml.gz") || lower.contains(".xz") || lower.contains("epg") || lower.contains("xmltv")) {
             viewModel.addEpgSource("QR EPG Source", trimmed)
-            return "Источник EPG успешно добавлен из QR-кода!"
+            return tr("Источник EPG успешно добавлен из QR-кода!")
         }
     }
 
@@ -170,7 +170,7 @@ fun processAndApplyQrCode(context: Context, viewModel: MainViewModel, qrContent:
         trimmed.startsWith("rtsp://", ignoreCase = true)
     ) {
         viewModel.addPlaylist("QR Playlist", trimmed)
-        return "Плейлист успешно добавлен из QR-кода!"
+        return tr("Плейлист успешно добавлен из QR-кода!")
     }
 
     // 5. Если это сырой текст M3U плейлиста (#EXTM3U)
@@ -179,18 +179,18 @@ fun processAndApplyQrCode(context: Context, viewModel: MainViewModel, qrContent:
             val file = File(context.filesDir, "qr_imported_${System.currentTimeMillis()}.m3u")
             file.writeText(trimmed)
             viewModel.addPlaylist("QR M3U Playlist", file.absolutePath)
-            "Плейлист M3U сохранен и добавлен!"
+            tr("Плейлист M3U сохранен и добавлен!")
         } catch (e: Exception) {
-            "Ошибка сохранения M3U: ${e.localizedMessage}"
+            tr("Ошибка сохранения M3U: {0}", e.localizedMessage)
         }
     }
 
     // 6. Попытка импорта как JSON бэкапа (если не подошли шаблоны выше)
     return if (viewModel.importBackupJson(trimmed)) {
-        "Настройки успешно применены!"
+        tr("Настройки успешно применены!")
     } else {
         viewModel.addPlaylist("QR Data", trimmed)
-        "Данные QR-кода добавлены в плейлисты!"
+        tr("Данные QR-кода добавлены в плейлисты!")
     }
 }
 
@@ -201,6 +201,7 @@ fun processAndApplyQrCode(context: Context, viewModel: MainViewModel, qrContent:
 fun QrCodeScannerDialog(
     viewModel: MainViewModel,
     onDismiss: () -> Unit,
+    title: String = tr("Принять настройки по QR (Сканер)"),
     onSuccess: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -215,7 +216,7 @@ fun QrCodeScannerDialog(
     ) { isGranted ->
         hasCameraPermission = isGranted
         if (!isGranted) {
-            Toast.makeText(context, "Для сканирования QR-кода необходим доступ к камере", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, tr("Для сканирования QR-кода необходим доступ к камере"), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -235,10 +236,10 @@ fun QrCodeScannerDialog(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(8.dp))
-                    Text("Принять настройки по QR (Сканер)", fontWeight = FontWeight.Bold)
+                    Text(title, fontWeight = FontWeight.Bold)
                 }
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                    Icon(Icons.Default.Close, contentDescription = tr("Закрыть"))
                 }
             }
         },
@@ -266,7 +267,7 @@ fun QrCodeScannerDialog(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(
-                                "Нажмите кнопку ниже, чтобы включить мини-камеру и отсканировать QR-код с настройками или плейлистом",
+                                tr("Нажмите кнопку ниже, чтобы включить мини-камеру и отсканировать QR-код с настройками или плейлистом..."),
                                 textAlign = TextAlign.Center,
                                 style = MaterialTheme.typography.bodyMedium
                             )
@@ -276,13 +277,13 @@ fun QrCodeScannerDialog(
                             ) {
                                 Icon(Icons.Default.QrCodeScanner, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Предоставить доступ к камере")
+                                Text(tr("Предоставить доступ к камере"))
                             }
                             OutlinedButton(
                                 onClick = { manualInputMode = true },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Ввести или вставить вручную")
+                                Text(tr("Ввести или вставить вручную"))
                             }
                         }
                     } else {
@@ -305,13 +306,13 @@ fun QrCodeScannerDialog(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            "Вставьте код или URL из буфера обмена:",
+                            tr("Вставьте код или URL из буфера обмена:"),
                             style = MaterialTheme.typography.bodyMedium
                         )
                         OutlinedTextField(
                             value = manualText,
                             onValueChange = { manualText = it },
-                            placeholder = { Text("http://... или JSON бэкап...") },
+                            placeholder = { Text(tr("http://... или JSON бэкап...")) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(120.dp)
@@ -331,7 +332,7 @@ fun QrCodeScannerDialog(
                             ) {
                                 Icon(Icons.Default.ContentPaste, contentDescription = null)
                                 Spacer(Modifier.width(4.dp))
-                                Text("Из буфера")
+                                Text(tr("Из буфера"))
                             }
                             Button(
                                 onClick = {
@@ -344,7 +345,7 @@ fun QrCodeScannerDialog(
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("Применить")
+                                Text(tr("Применить"))
                             }
                         }
                         if (hasCameraPermission) {
@@ -354,7 +355,7 @@ fun QrCodeScannerDialog(
                             ) {
                                 Icon(Icons.Default.QrCodeScanner, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
-                                Text("Вернуться к камере")
+                                Text(tr("Вернуться к камере"))
                             }
                         }
                     }
@@ -364,11 +365,11 @@ fun QrCodeScannerDialog(
         confirmButton = {
             if (scanResultStatus != null) {
                 Button(onClick = onDismiss) {
-                    Text("Готово")
+                    Text(tr("Готово"))
                 }
             } else {
                 TextButton(onClick = onDismiss) {
-                    Text("Закрыть")
+                    Text(tr("Закрыть"))
                 }
             }
         }
@@ -384,7 +385,7 @@ fun ShowReceiveQrDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    var statusText by remember { mutableStateOf("Запуск сервера приема по QR...") }
+    var statusText by remember { mutableStateOf(tr("Запуск сервера приема по QR...")) }
     var isSuccess by remember { mutableStateOf(false) }
 
     val receiverServer = remember(viewModel) {
@@ -392,10 +393,10 @@ fun ShowReceiveQrDialog(
             val success = viewModel.importBackupJson(payload)
             if (success) {
                 triggerVibration(context)
-                statusText = "ВСЕ настройки, плейлисты и EPG успешно получены и применены!"
+                statusText = tr("ВСЕ настройки, плейлисты и EPG успешно получены и применены!")
                 isSuccess = true
             } else {
-                statusText = "Ошибка импорта полученных данных"
+                statusText = tr("Ошибка импорта полученных данных")
             }
             success
         }
@@ -410,12 +411,12 @@ fun ShowReceiveQrDialog(
             if (ip != null) {
                 val receiverUrl = "http://$ip:$port${receiverServer.path}"
                 qrImage = QrCodeGenerator.generateQrBitmap(receiverUrl, 512, 512)
-                statusText = "Покажите этот QR-код второму устройству. При сканировании второе устройство передаст ВСЕ свои настройки, плейлисты и EPG на этот экран."
+                statusText = tr("Покажите этот QR-код второму устройству. При сканировании второе устройство передаст ВСЕ свои настройки, плейлисты и EPG на этот экран.")
             } else {
-                statusText = "Подключитесь к сети Wi-Fi для приема настроек по QR-коду"
+                statusText = tr("Подключитесь к сети Wi-Fi для приема настроек по QR-коду")
             }
         } catch (e: Exception) {
-            statusText = "Ошибка запуска локального приема: ${e.localizedMessage}"
+            statusText = tr("Ошибка запуска локального приема: {0}", e.localizedMessage)
         }
         onDispose {
             receiverServer.stop()
@@ -428,7 +429,7 @@ fun ShowReceiveQrDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text("Принять настройки по QR-коду", fontWeight = FontWeight.Bold)
+                Text(tr("Принять настройки (QR-приёмник)"), fontWeight = FontWeight.Bold)
             }
         },
         text = {
@@ -464,7 +465,7 @@ fun ShowReceiveQrDialog(
         },
         confirmButton = {
             Button(onClick = onDismiss) {
-                Text(if (isSuccess) "Готово" else "Закрыть")
+                Text(if (isSuccess) tr("Готово") else tr("Закрыть"))
             }
         }
     )
@@ -506,7 +507,7 @@ fun ShowQrCodeDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.QrCode, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text("Отдать настройки по QR-коду", fontWeight = FontWeight.Bold)
+                Text(tr("Отдать настройки (Мой QR-код)"), fontWeight = FontWeight.Bold)
             }
         },
         text = {
@@ -522,21 +523,21 @@ fun ShowQrCodeDialog(
                         onClick = { selectedTab = 0 },
                         shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3)
                     ) {
-                        Text("Все настройки", fontSize = 11.sp)
+                        Text(tr("Все настройки"), fontSize = 11.sp)
                     }
                     SegmentedButton(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3)
                     ) {
-                        Text("Плейлист", fontSize = 11.sp)
+                        Text(tr("Плейлист"), fontSize = 11.sp)
                     }
                     SegmentedButton(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
                         shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3)
                     ) {
-                        Text("EPG", fontSize = 11.sp)
+                        Text(tr("EPG"), fontSize = 11.sp)
                     }
                 }
 
@@ -557,9 +558,9 @@ fun ShowQrCodeDialog(
 
                 Text(
                     text = when (selectedTab) {
-                        0 -> "Покажите этот QR-код другому устройству для передачи ВСЕХ настроек, плейлистов и EPG."
-                        1 -> if (currentPlaylistUrl.isNotBlank()) "QR-код ссылки на выбранный плейлист." else "Нет активных плейлистов"
-                        2 -> if (currentEpgUrl.isNotBlank()) "QR-код ссылки на выбранный источник ТВ-программы (EPG)." else "Нет активных источников EPG"
+                        0 -> tr("Покажите этот QR-код другому устройству для передачи ВСЕХ настроек, плейлистов и EPG.")
+                        1 -> if (currentPlaylistUrl.isNotBlank()) tr("QR-код ссылки на выбранный плейлист.") else tr("Нет активных плейлистов")
+                        2 -> if (currentEpgUrl.isNotBlank()) tr("QR-код ссылки на выбранный источник ТВ-программы (EPG).") else tr("Нет активных источников EPG")
                         else -> ""
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -571,20 +572,20 @@ fun ShowQrCodeDialog(
                     onClick = {
                         if (qrContent.isNotBlank()) {
                             clipboardManager.setText(AnnotatedString(qrContent))
-                            Toast.makeText(context, "Скопировано в буфер обмена", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, tr("Скопировано в буфер обмена"), Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.ContentCopy, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text("Скопировать данные QR")
+                    Text(tr("Скопировать данные QR"))
                 }
             }
         },
         confirmButton = {
             Button(onClick = onDismiss) {
-                Text("Закрыть")
+                Text(tr("Закрыть"))
             }
         }
     )
@@ -691,7 +692,7 @@ private fun MiniCameraScannerView(
 
         // Текст подсказки поверх камеры
         Text(
-            text = "Наведите камеру на QR-код",
+            text = tr("Наведите камеру на QR-код"),
             color = Color.White,
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
@@ -715,7 +716,7 @@ private fun MiniCameraScannerView(
         ) {
             Icon(
                 imageVector = if (isTorchOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                contentDescription = "Фонарик",
+                contentDescription = tr("Фонарик"),
                 tint = if (isTorchOn) Color.Yellow else Color.White
             )
         }
@@ -730,7 +731,7 @@ private fun MiniCameraScannerView(
         ) {
             Icon(
                 imageVector = Icons.Default.ContentPaste,
-                contentDescription = "Ручной ввод",
+                contentDescription = tr("Ручной ввод"),
                 tint = Color.White
             )
         }

@@ -261,4 +261,22 @@
     <string name="layout_side_by_side_large">Бок о бок, крупные</string>
     <string name="layout_side_by_side_huge">Бок о бок, огромные</string>
     <string name="no_program_info">Нет информации о программе</string>
+
+    <!-- Archive Dialog -->
+    <string name="archive">Архив</string>
+    <string name="channel">канал</string>
+    <string name="archive_no_epg">Архивных передач в загруженном EPG за последние 14 дней не найдено. Глубина и доступность архива зависят от вашего провайдера.</string>
+    <string name="archive_last_hours">Последние %1$d часов</string>
+    <string name="archive_format_unknown">формат неизвестен</string>
+    <string name="archive_open">открыть архив</string>
+    <string name="archive_no_metadata">У плейлиста нет EPG или метаданных архива. Вы можете попробовать стандартный архив Flussonic; он сработает, только если провайдер ведёт запись этого канала.</string>
+    <string name="archive_rewind_hours">Перемотать на %1$d часов</string>
+    <string name="no_audio_tracks">Нет доступных аудиодорожек</string>
+
+    <!-- OpenMirror Strings -->
+    <string name="mirror_notification_text">Трансляция экрана на магнитолу</string>
+    <string name="mirror_unlock_phone">Разблокируйте телефон и подтвердите трансляцию экрана</string>
+    <string name="mirror_enable_control">Включить управление</string>
+    <string name="mirror_confirm_projection">Подтвердите трансляцию экрана на телефоне</string>
+    <string name="mirror_enable_accessibility">Для нажатий с магнитолы включите OpenIPTV в Спец. возможностях</string>
 </resources>

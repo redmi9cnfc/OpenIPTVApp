@@ -18,6 +18,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -125,10 +128,11 @@ fun MainScreen(
     val badgeShape by viewModel.badgeShape.collectAsState()
     val badgeColor by viewModel.badgeColor.collectAsState()
     val expressiveGlow by viewModel.expressiveGlow.collectAsState()
+    val motionBlur by viewModel.motionBlur.collectAsState()
     val ambientCanvas by viewModel.ambientCanvas.collectAsState()
     val epgProgressStyle by viewModel.epgProgressStyle.collectAsState()
     val iconRotationEnabled by viewModel.iconRotationEnabled.collectAsState()
-    
+
     var currentTime by remember { mutableStateOf(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())) }
     var isSearchExpanded by remember { mutableStateOf(false) }
     var showPlaylistMenu by remember { mutableStateOf(false) }
@@ -183,7 +187,7 @@ fun MainScreen(
             recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
         }
     }
-    
+
     var showAddPlaylistDialog by remember { mutableStateOf(false) }
     var showQrScannerDialog by remember { mutableStateOf(false) }
     var showWifiTransfer by remember { mutableStateOf(false) }
@@ -233,7 +237,11 @@ fun MainScreen(
                             Text("OpenIPTV", fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                             val currentPlaylist = playlists.find { it.isSelected } ?: playlists.firstOrNull()
                             if (playlists.isNotEmpty()) {
-                                val shouldShowUrl = currentPlaylist != null && !hideUrl && currentPlaylist.url.isNotBlank() && !currentPlaylist.url.startsWith("data:text/plain;base64,", ignoreCase = true)
+                                val playlistDisplayText = if (hideUrl) {
+                                    currentPlaylist?.name ?: tr("Выберите плейлист")
+                                } else {
+                                    currentPlaylist?.url?.ifBlank { currentPlaylist?.name } ?: tr("Выберите плейлист")
+                                }
                                 Surface(
                                     onClick = { showPlaylistMenu = true },
                                     shape = RoundedCornerShape(12.dp),
@@ -245,23 +253,14 @@ fun MainScreen(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                     ) {
-                                        Column(modifier = Modifier.weight(1f, fill = false)) {
-                                            Text(
-                                                currentPlaylist?.name ?: tr("Выберите плейлист"),
-                                                fontSize = 11.sp,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1
-                                            )
-                                            if (shouldShowUrl && currentPlaylist != null) {
-                                                Text(
-                                                    currentPlaylist.url,
-                                                    fontSize = 9.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1
-                                                )
-                                            }
-                                        }
+                                        Text(
+                                            playlistDisplayText,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
                                         Icon(
                                             imageVector = Icons.Default.ArrowDropDown,
                                             contentDescription = "Select playlist",
@@ -291,10 +290,25 @@ fun MainScreen(
                             Icon(Icons.Default.Search, stringResource(R.string.search), modifier = Modifier.size(20.dp))
                         }
                         IconButton(onClick = {
-                            val nextMode = if (categoryDisplayMode == "Chips") "Folders" else "Chips"
+                            val nextMode = when (categoryDisplayMode) {
+                                "Folders" -> "Chips"
+                                "Chips" -> "Tabs"
+                                "Tabs" -> "Dropdown"
+                                "Dropdown" -> "Sidebar"
+                                else -> "Folders"
+                            }
                             viewModel.setCategoryDisplayMode(nextMode)
                         }) {
-                            Icon(if (categoryDisplayMode == "Chips") Icons.Default.Folder else Icons.Default.ViewStream, "Toggle Display Mode")
+                            Icon(
+                                imageVector = when (categoryDisplayMode) {
+                                    "Folders" -> Icons.Default.Folder
+                                    "Chips" -> Icons.Default.ViewStream
+                                    "Tabs" -> Icons.Default.Tab
+                                    "Dropdown" -> Icons.Default.List
+                                    else -> Icons.Default.ViewSidebar
+                                },
+                                contentDescription = "Toggle Display Mode"
+                            )
                         }
                         IconButton(onClick = { showEpgSearchDialog = true }, modifier = Modifier.size(36.dp)) {
                             Icon(Icons.Default.ManageSearch, stringResource(R.string.epg_search), modifier = Modifier.size(20.dp))
@@ -346,535 +360,1036 @@ fun MainScreen(
         Box(modifier = Modifier.fillMaxSize()) {
             ExpressiveAmbientCanvas(enabled = ambientCanvas)
             Column(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
-            if (!playlistError.isNullOrBlank()) {
-                Text(
-                    text = playlistError.orEmpty(),
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-            }
-            if (playlists.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(stringResource(R.string.no_playlists), style = MaterialTheme.typography.headlineSmall)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = {
-                            tempPlaylistName = ""
-                            tempPlaylistUrl = ""
-                            showAddPlaylistDialog = true
-                        }, modifier = Modifier.fillMaxWidth(0.85f)) {
-                            Icon(Icons.Default.Link, null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.add_first_playlist))
-                        }
-                        OutlinedButton(
-                            onClick = { playlistFilePicker.launch(arrayOf("*/*")) },
-                            modifier = Modifier.fillMaxWidth(0.85f)
-                        ) {
-                            Icon(Icons.Default.FileOpen, null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.import_file))
-                        }
-                        OutlinedButton(
-                            onClick = { showWifiTransfer = true },
-                            modifier = Modifier.fillMaxWidth(0.85f)
-                        ) {
-                            Icon(Icons.Default.Wifi, null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.wifi_transfer_title))
-                        }
-                    }
-                }
-            } else {
-                if (isSearchExpanded || searchQuery.isNotEmpty()) {
-                    TextField(
-                        value = searchQuery,
-                        onValueChange = { viewModel.updateSearchQuery(it) },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                        placeholder = { Text(stringResource(R.string.search)) },
-                        leadingIcon = { Icon(Icons.Default.Search, null) },
-                        trailingIcon = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { startVoiceSearch() }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Mic,
-                                        contentDescription = "Voice Search",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                IconButton(onClick = {
-                                    viewModel.updateSearchQuery("")
-                                    isSearchExpanded = false
-                                }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Спрятать")
-                                }
-                            }
-                        },
-                        shape = MaterialTheme.shapes.medium,
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
+                if (!playlistError.isNullOrBlank()) {
+                    Text(
+                        text = playlistError.orEmpty(),
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
                     )
                 }
-
-                if (categoryDisplayMode == "Chips") {
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(visibleCategories) { category ->
-                            var isFocused by remember { mutableStateOf(false) }
-                            var isOkKeyDown by remember { mutableStateOf(false) }
-                            var isLongPressHandled by remember { mutableStateOf(false) }
-                            var longPressJob by remember { mutableStateOf<Job?>(null) }
-                            val chipScope = rememberCoroutineScope()
-                            val isFolderLocked = viewModel.isFolderLocked(category)
-
-                            val handleChipClick = {
-                                if (!isLongPressHandled) {
-                                    if (category == "MSX" || category == "Prisma") {
-                                        if (onMsxClick != null) onMsxClick()
-                                    } else if (isFolderLocked) {
-                                        showFolderPasswordPrompt = category
-                                    } else {
-                                        viewModel.selectCategory(category)
-                                    }
-                                }
+                if (playlists.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(stringResource(R.string.no_playlists), style = MaterialTheme.typography.headlineSmall)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(onClick = {
+                                tempPlaylistName = ""
+                                tempPlaylistUrl = ""
+                                showAddPlaylistDialog = true
+                            }, modifier = Modifier.fillMaxWidth(0.85f)) {
+                                Icon(Icons.Default.Link, null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(R.string.add_first_playlist))
                             }
-
-                            FilterChip(
-                                selected = category == selectedCategory,
-                                onClick = handleChipClick,
-                                label = { Text(if (category == "MSX" || category == "Prisma") "Media Station X" else getCategoryDisplayName(category), fontSize = categoryChipLabelFontSize(fontSize, isAuto).sp) },
-                                leadingIcon = { 
-                                    when(category) {
-                                        "Favorites" -> Icon(Icons.Default.Favorite, null, modifier = Modifier.size(ScreenPresets.iconSize(isAuto).dp))
-                                        "Recent" -> Icon(Icons.Default.History, null, modifier = Modifier.size(ScreenPresets.iconSize(isAuto).dp))
-                                        "MSX", "Prisma" -> Icon(Icons.Default.Public, null, modifier = Modifier.size(ScreenPresets.iconSize(isAuto).dp), tint = Color(0xFF00A2E8))
-                                    }
-                                },
-                                trailingIcon = if (isFolderLocked) {
-                                    { Icon(Icons.Default.Lock, contentDescription = "Locked", modifier = Modifier.size((ScreenPresets.iconSize(isAuto) - 4).dp)) }
-                                } else null,
-                                modifier = Modifier
-                                    .heightIn(min = ScreenPresets.targetSize(isAuto).dp)
-                                    .onFocusChanged { isFocused = it.isFocused }
-                                    .scale(if (isFocused) 1.1f else 1f)
-                                    .border(
-                                        width = if (isFocused) 2.dp else 0.dp,
-                                        color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                        shape = MaterialTheme.shapes.small
-                                    )
-                                    .onPreviewKeyEvent { event ->
-                                        val keyCode = event.nativeKeyEvent.keyCode
-                                        val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                                            keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
-                                        if (!isConfirm) return@onPreviewKeyEvent false
-                                        when (event.nativeKeyEvent.action) {
-                                            KeyEvent.ACTION_DOWN -> {
-                                                if (!isOkKeyDown) {
-                                                    isOkKeyDown = true
-                                                    isLongPressHandled = false
-                                                    longPressJob?.cancel()
-                                                    longPressJob = chipScope.launch {
-                                                        delay(550)
-                                                        if (isOkKeyDown && !isLongPressHandled) {
-                                                            isLongPressHandled = true
-                                                            if (category != "All" && category != "Favorites" && category != "Recent") {
-                                                                showFolderMenu = category
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                true
-                                            }
-                                            KeyEvent.ACTION_UP -> {
-                                                isOkKeyDown = false
-                                                longPressJob?.cancel()
-                                                longPressJob = null
-                                                handleChipClick()
-                                                true
-                                            }
-                                            else -> true
-                                        }
-                                    }
-                                    .combinedClickable(
-                                        onClick = handleChipClick,
-                                        onLongClick = {
-                                            if (category != "All" && category != "Favorites" && category != "Recent") {
-                                                showFolderMenu = category
-                                            }
-                                        }
-                                    ),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                                ),
-                                border = null
-                            )
-                        }
-                    }
-
-                    if (isLoading) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ExpressiveLoadingIndicator(size = 72.dp) }
-                    } else {
-                        val gridColumns = channelGridCells(listSize)
-                        LazyVerticalGrid(
-                            columns = gridColumns,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            itemsIndexed(channels) { index, channel ->
-                                ChannelCard(
-                                    channel = channel,
-                                    currentProgram = currentPrograms[channel.url],
-                                    nextProgram = nextPrograms[channel.url],
-                                    viewingTime = channelViewingTimes[channel.url] ?: 0L,
-                                    fontSize = fontSize,
-                                    listSize = listSize,
-                                    uiStyle = uiStyle,
-                                    epgProgressStyle = epgProgressStyle,
-                                    channelNumber = if (showChannelNumbers) index + 1 else null,
-                                    cornerRadius = cardCornerRadius,
-                                    scaleIntensity = springScale,
-                                    glowEnabled = expressiveGlow,
-                                    onClick = { 
-                                        if (channel.isLocked) {
-                                            showPasswordDialog = Triple(channel, "play", "")
-                                        } else {
-                                            onChannelClick(channel)
-                                            viewModel.updateSetting("last_channel_url", channel.url)
-                                        }
-                                    },
-                                    onLongClick = { showChannelMenu = channel }
-                                )
+                            OutlinedButton(
+                                onClick = { playlistFilePicker.launch(arrayOf("*/*")) },
+                                modifier = Modifier.fillMaxWidth(0.85f)
+                            ) {
+                                Icon(Icons.Default.FileOpen, null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(R.string.import_file))
+                            }
+                            OutlinedButton(
+                                onClick = { showWifiTransfer = true },
+                                modifier = Modifier.fillMaxWidth(0.85f)
+                            ) {
+                                Icon(Icons.Default.Wifi, null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(R.string.wifi_transfer_title))
                             }
                         }
                     }
                 } else {
-                    // Folders Display Mode
-                    if (selectedFolder == null) {
-                        Text(stringResource(R.string.categories), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp))
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 160.dp),
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            item {
-                                CategoryFolderCard(
-                                    title = "Media Station X",
-                                    count = 1,
-                                    uiStyle = uiStyle,
-                                    isLocked = false,
-                                    onClick = {
-                                        if (onMsxClick != null) {
-                                            onMsxClick()
-                                        }
-                                    },
-                                    onLongClick = {}
-                                )
-                            }
-                            items(visibleCategories.filter { it != "MSX" && it != "Prisma" }) { category ->
-                                val count = categoryCounts[category] ?: 0
-                                val isFolderLocked = viewModel.isFolderLocked(category)
-                                CategoryFolderCard(
-                                    title = category,
-                                    count = count,
-                                    uiStyle = uiStyle,
-                                    isLocked = isFolderLocked,
-                                    onClick = {
-                                        if (isFolderLocked) {
-                                            showFolderPasswordPrompt = category
-                                        } else {
-                                            viewModel.selectFolder(category)
-                                        }
-                                    },
-                                    onLongClick = {
-                                        if (category != "All" && category != "Favorites" && category != "Recent") {
-                                            showFolderMenu = category
+                    if (isSearchExpanded || searchQuery.isNotEmpty()) {
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.updateSearchQuery(it) },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                            placeholder = { Text(stringResource(R.string.search)) },
+                            leadingIcon = { Icon(Icons.Default.Search, null) },
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { startVoiceSearch() }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Mic,
+                                            contentDescription = "Voice Search",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    IconButton(onClick = {
+                                        viewModel.updateSearchQuery("")
+                                        isSearchExpanded = false
+                                    }) {
+                                        Icon(Icons.Default.Close, contentDescription = tr("Спрятать"))
+                                    }
+                                }
+                            },
+                            shape = MaterialTheme.shapes.medium,
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
+                        )
+                    }
+
+                    when (categoryDisplayMode) {
+                        "Chips" -> {
+                            LazyRow(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(visibleCategories) { category ->
+                                    var isFocused by remember { mutableStateOf(false) }
+                                    var isOkKeyDown by remember { mutableStateOf(false) }
+                                    var isLongPressHandled by remember { mutableStateOf(false) }
+                                    var longPressJob by remember { mutableStateOf<Job?>(null) }
+                                    val chipScope = rememberCoroutineScope()
+                                    val isFolderLocked = viewModel.isFolderLocked(category)
+
+                                    val handleChipClick = {
+                                        if (!isLongPressHandled) {
+                                            if (category == "MSX" || category == "Prisma") {
+                                                if (onMsxClick != null) onMsxClick()
+                                            } else if (isFolderLocked) {
+                                                showFolderPasswordPrompt = category
+                                            } else {
+                                                viewModel.selectCategory(category)
+                                            }
                                         }
                                     }
-                                )
-                            }
-                        }
-                    } else {
-                        // Inside selected Category Folder
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                        ) {
-                            TextButton(onClick = { viewModel.selectFolder(null) }) {
-                                Icon(Icons.Default.ArrowBack, null)
-                                Spacer(Modifier.width(8.dp))
-                                Text(stringResource(R.string.back_to_folders), fontWeight = FontWeight.Bold)
-                            }
-                            Spacer(Modifier.weight(1f))
-                            Text(getCategoryDisplayName(selectedFolder ?: ""), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        }
 
-                        if (selectedCategory == "All" && searchQuery.isEmpty()) {
-                            ContinueWatchingRow(
-                                channels = recentChannels,
-                                viewingTimes = channelViewingTimes,
+                                    FilterChip(
+                                        selected = category == selectedCategory,
+                                        onClick = handleChipClick,
+                                        label = { Text(if (category == "MSX" || category == "Prisma") "Media Station X" else getCategoryDisplayName(category), fontSize = categoryChipLabelFontSize(fontSize, isAuto).sp) },
+                                        leadingIcon = {
+                                            when(category) {
+                                                "Favorites" -> Icon(Icons.Default.Favorite, null, modifier = Modifier.size(ScreenPresets.iconSize(isAuto).dp))
+                                                "Recent" -> Icon(Icons.Default.History, null, modifier = Modifier.size(ScreenPresets.iconSize(isAuto).dp))
+                                                "MSX", "Prisma" -> Icon(Icons.Default.Public, null, modifier = Modifier.size(ScreenPresets.iconSize(isAuto).dp), tint = Color(0xFF00A2E8))
+                                            }
+                                        },
+                                        trailingIcon = if (isFolderLocked) {
+                                            { Icon(Icons.Default.Lock, contentDescription = "Locked", modifier = Modifier.size((ScreenPresets.iconSize(isAuto) - 4).dp)) }
+                                        } else null,
+                                        modifier = Modifier
+                                            .heightIn(min = ScreenPresets.targetSize(isAuto).dp)
+                                            .onFocusChanged { isFocused = it.isFocused }
+                                            .scale(if (isFocused) 1.1f else 1f)
+                                            .border(
+                                                width = if (isFocused) 2.dp else 0.dp,
+                                                color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                shape = MaterialTheme.shapes.small
+                                            )
+                                            .onPreviewKeyEvent { event ->
+                                                val keyCode = event.nativeKeyEvent.keyCode
+                                                val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                                        keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                                                if (!isConfirm) return@onPreviewKeyEvent false
+                                                when (event.nativeKeyEvent.action) {
+                                                    KeyEvent.ACTION_DOWN -> {
+                                                        if (!isOkKeyDown) {
+                                                            isOkKeyDown = true
+                                                            isLongPressHandled = false
+                                                            longPressJob?.cancel()
+                                                            longPressJob = chipScope.launch {
+                                                                delay(550)
+                                                                if (isOkKeyDown && !isLongPressHandled) {
+                                                                    isLongPressHandled = true
+                                                                    if (category != "All" && category != "Favorites" && category != "Recent") {
+                                                                        showFolderMenu = category
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        true
+                                                    }
+                                                    KeyEvent.ACTION_UP -> {
+                                                        isOkKeyDown = false
+                                                        longPressJob?.cancel()
+                                                        longPressJob = null
+                                                        handleChipClick()
+                                                        true
+                                                    }
+                                                    else -> true
+                                                }
+                                            }
+                                            .combinedClickable(
+                                                onClick = handleChipClick,
+                                                onLongClick = {
+                                                    if (category != "All" && category != "Favorites" && category != "Recent") {
+                                                        showFolderMenu = category
+                                                    }
+                                                }
+                                            ),
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                        ),
+                                        border = null
+                                    )
+                                }
+                            }
+
+                            ChannelGridContent(
+                                channels = channels,
                                 currentPrograms = currentPrograms,
                                 nextPrograms = nextPrograms,
+                                channelViewingTimes = channelViewingTimes,
                                 fontSize = fontSize,
-                                onChannelClick = { channel ->
-                                    if (channel.isLocked) {
-                                        showPasswordDialog = Triple(channel, "play", "")
-                                    } else {
-                                        onChannelClick(channel)
-                                        viewModel.updateSetting("last_channel_url", channel.url)
-                                    }
-                                },
-                                onLongClick = { showChannelMenu = it }
+                                listSize = listSize,
+                                uiStyle = uiStyle,
+                                epgProgressStyle = epgProgressStyle,
+                                showChannelNumbers = showChannelNumbers,
+                                cardCornerRadius = cardCornerRadius,
+                                springScale = springScale,
+                                expressiveGlow = expressiveGlow,
+                                motionBlur = motionBlur,
+                                isLoading = isLoading,
+                                onChannelClick = onChannelClick,
+                                onChannelLongClick = { showChannelMenu = it },
+                                onPasswordPrompt = { showPasswordDialog = Triple(it, "play", "") },
+                                onUpdateLastChannel = { viewModel.updateSetting("last_channel_url", it) }
                             )
                         }
+                        "Tabs" -> {
+                            val activeIndex = visibleCategories.indexOf(selectedCategory).coerceAtLeast(0)
+                            ScrollableTabRow(
+                                selectedTabIndex = activeIndex,
+                                edgePadding = 8.dp,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                visibleCategories.forEach { category ->
+                                    Tab(
+                                        selected = category == selectedCategory,
+                                        onClick = {
+                                            if (category == "MSX" || category == "Prisma") {
+                                                if (onMsxClick != null) onMsxClick()
+                                            } else if (viewModel.isFolderLocked(category)) {
+                                                showFolderPasswordPrompt = category
+                                            } else {
+                                                viewModel.selectCategory(category)
+                                            }
+                                        },
+                                        text = { Text(if (category == "MSX" || category == "Prisma") "Media Station X" else getCategoryDisplayName(category), fontSize = 12.sp, fontWeight = if (category == selectedCategory) FontWeight.Bold else FontWeight.Normal) }
+                                    )
+                                }
+                            }
 
-                        val gridColumns = channelGridCells(listSize)
-                        LazyVerticalGrid(
-                            columns = gridColumns,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            itemsIndexed(channels) { index, channel ->
-                                ChannelCard(
-                                    channel = channel,
-                                    currentProgram = currentPrograms[channel.url],
-                                    nextProgram = nextPrograms[channel.url],
-                                    viewingTime = channelViewingTimes[channel.url] ?: 0L,
+                            ChannelGridContent(
+                                channels = channels,
+                                currentPrograms = currentPrograms,
+                                nextPrograms = nextPrograms,
+                                channelViewingTimes = channelViewingTimes,
+                                fontSize = fontSize,
+                                listSize = listSize,
+                                uiStyle = uiStyle,
+                                epgProgressStyle = epgProgressStyle,
+                                showChannelNumbers = showChannelNumbers,
+                                cardCornerRadius = cardCornerRadius,
+                                springScale = springScale,
+                                expressiveGlow = expressiveGlow,
+                                motionBlur = motionBlur,
+                                isLoading = isLoading,
+                                onChannelClick = onChannelClick,
+                                onChannelLongClick = { showChannelMenu = it },
+                                onPasswordPrompt = { showPasswordDialog = Triple(it, "play", "") },
+                                onUpdateLastChannel = { viewModel.updateSetting("last_channel_url", it) }
+                            )
+                        }
+                        "Dropdown" -> {
+                            var isCategoryDropdownExpanded by remember { mutableStateOf(false) }
+                            Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                                OutlinedButton(
+                                    onClick = { isCategoryDropdownExpanded = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.Category, contentDescription = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("${tr("Категория")}: ${getCategoryDisplayName(selectedCategory)}", fontWeight = FontWeight.Bold)
+                                    Spacer(Modifier.weight(1f))
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                }
+                                DropdownMenu(
+                                    expanded = isCategoryDropdownExpanded,
+                                    onDismissRequest = { isCategoryDropdownExpanded = false },
+                                    modifier = Modifier.fillMaxWidth(0.9f)
+                                ) {
+                                    visibleCategories.forEach { category ->
+                                        DropdownMenuItem(
+                                            text = { Text(if (category == "MSX" || category == "Prisma") "Media Station X" else getCategoryDisplayName(category)) },
+                                            onClick = {
+                                                isCategoryDropdownExpanded = false
+                                                if (category == "MSX" || category == "Prisma") {
+                                                    if (onMsxClick != null) onMsxClick()
+                                                } else if (viewModel.isFolderLocked(category)) {
+                                                    showFolderPasswordPrompt = category
+                                                } else {
+                                                    viewModel.selectCategory(category)
+                                                }
+                                            },
+                                            leadingIcon = {
+                                                if (category == selectedCategory) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            ChannelGridContent(
+                                channels = channels,
+                                currentPrograms = currentPrograms,
+                                nextPrograms = nextPrograms,
+                                channelViewingTimes = channelViewingTimes,
+                                fontSize = fontSize,
+                                listSize = listSize,
+                                uiStyle = uiStyle,
+                                epgProgressStyle = epgProgressStyle,
+                                showChannelNumbers = showChannelNumbers,
+                                cardCornerRadius = cardCornerRadius,
+                                springScale = springScale,
+                                expressiveGlow = expressiveGlow,
+                                motionBlur = motionBlur,
+                                isLoading = isLoading,
+                                onChannelClick = onChannelClick,
+                                onChannelLongClick = { showChannelMenu = it },
+                                onPasswordPrompt = { showPasswordDialog = Triple(it, "play", "") },
+                                onUpdateLastChannel = { viewModel.updateSetting("last_channel_url", it) }
+                            )
+                        }
+                        "Sidebar" -> {
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                Surface(
+                                    modifier = Modifier.width(160.dp).fillMaxHeight(),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    tonalElevation = 2.dp
+                                ) {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        items(visibleCategories) { category ->
+                                            val isSelected = category == selectedCategory
+                                            Surface(
+                                                onClick = {
+                                                    if (category == "MSX" || category == "Prisma") {
+                                                        if (onMsxClick != null) onMsxClick()
+                                                    } else if (viewModel.isFolderLocked(category)) {
+                                                        showFolderPasswordPrompt = category
+                                                    } else {
+                                                        viewModel.selectCategory(category)
+                                                    }
+                                                },
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = if (category == "MSX" || category == "Prisma") "Media Station X" else getCategoryDisplayName(category),
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                                    ChannelGridContent(
+                                        channels = channels,
+                                        currentPrograms = currentPrograms,
+                                        nextPrograms = nextPrograms,
+                                        channelViewingTimes = channelViewingTimes,
+                                        fontSize = fontSize,
+                                        listSize = listSize,
+                                        uiStyle = uiStyle,
+                                        epgProgressStyle = epgProgressStyle,
+                                        showChannelNumbers = showChannelNumbers,
+                                        cardCornerRadius = cardCornerRadius,
+                                        springScale = springScale,
+                                        expressiveGlow = expressiveGlow,
+                                        motionBlur = motionBlur,
+                                        isLoading = isLoading,
+                                        onChannelClick = onChannelClick,
+                                        onChannelLongClick = { showChannelMenu = it },
+                                        onPasswordPrompt = { showPasswordDialog = Triple(it, "play", "") },
+                                        onUpdateLastChannel = { viewModel.updateSetting("last_channel_url", it) }
+                                    )
+                                }
+                            }
+                        }
+                        else -> {
+                            // Folders Display Mode
+                            if (selectedFolder == null) {
+                                Text(stringResource(R.string.categories), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp))
+                                LazyVerticalGrid(
+                                    columns = GridCells.Adaptive(minSize = 160.dp),
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    item {
+                                        CategoryFolderCard(
+                                            title = "Media Station X",
+                                            count = 1,
+                                            uiStyle = uiStyle,
+                                            isLocked = false,
+                                            onClick = {
+                                                if (onMsxClick != null) {
+                                                    onMsxClick()
+                                                }
+                                            },
+                                            onLongClick = {}
+                                        )
+                                    }
+                                    items(visibleCategories.filter { it != "MSX" && it != "Prisma" }) { category ->
+                                        val count = categoryCounts[category] ?: 0
+                                        val isFolderLocked = viewModel.isFolderLocked(category)
+                                        CategoryFolderCard(
+                                            title = category,
+                                            count = count,
+                                            uiStyle = uiStyle,
+                                            isLocked = isFolderLocked,
+                                            onClick = {
+                                                if (isFolderLocked) {
+                                                    showFolderPasswordPrompt = category
+                                                } else {
+                                                    viewModel.selectFolder(category)
+                                                }
+                                            },
+                                            onLongClick = {
+                                                if (category != "All" && category != "Favorites" && category != "Recent") {
+                                                    showFolderMenu = category
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            } else {
+                                // Inside selected Category Folder
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    TextButton(onClick = { viewModel.selectFolder(null) }) {
+                                        Icon(Icons.Default.ArrowBack, null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(stringResource(R.string.back_to_folders), fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(Modifier.weight(1f))
+                                    Text(getCategoryDisplayName(selectedFolder ?: ""), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                }
+
+                                if (selectedCategory == "All" && searchQuery.isEmpty()) {
+                                    ContinueWatchingRow(
+                                        channels = recentChannels,
+                                        viewingTimes = channelViewingTimes,
+                                        currentPrograms = currentPrograms,
+                                        nextPrograms = nextPrograms,
+                                        fontSize = fontSize,
+                                        onChannelClick = { channel ->
+                                            if (channel.isLocked) {
+                                                showPasswordDialog = Triple(channel, "play", "")
+                                            } else {
+                                                onChannelClick(channel)
+                                                viewModel.updateSetting("last_channel_url", channel.url)
+                                            }
+                                        },
+                                        onLongClick = { showChannelMenu = it }
+                                    )
+                                }
+
+                                ChannelGridContent(
+                                    channels = channels,
+                                    currentPrograms = currentPrograms,
+                                    nextPrograms = nextPrograms,
+                                    channelViewingTimes = channelViewingTimes,
                                     fontSize = fontSize,
                                     listSize = listSize,
                                     uiStyle = uiStyle,
                                     epgProgressStyle = epgProgressStyle,
-                                    channelNumber = if (showChannelNumbers) index + 1 else null,
-                                    cornerRadius = cardCornerRadius,
-                                    scaleIntensity = springScale,
-                                    glowEnabled = expressiveGlow,
-                                    onClick = { 
-                                        if (channel.isLocked) {
-                                            showPasswordDialog = Triple(channel, "play", "")
-                                        } else {
-                                            onChannelClick(channel)
-                                            viewModel.updateSetting("last_channel_url", channel.url)
-                                        }
-                                    },
-                                    onLongClick = { showChannelMenu = channel }
+                                    showChannelNumbers = showChannelNumbers,
+                                    cardCornerRadius = cardCornerRadius,
+                                    springScale = springScale,
+                                    expressiveGlow = expressiveGlow,
+                                    motionBlur = motionBlur,
+                                    isLoading = isLoading,
+                                    onChannelClick = onChannelClick,
+                                    onChannelLongClick = { showChannelMenu = it },
+                                    onPasswordPrompt = { showPasswordDialog = Triple(it, "play", "") },
+                                    onUpdateLastChannel = { viewModel.updateSetting("last_channel_url", it) }
                                 )
                             }
                         }
                     }
                 }
             }
-}
+        }
 
-    if (showPlaylistMenu) {
-        val currentPlaylist = playlists.find { it.isSelected } ?: playlists.firstOrNull()
-        InPageDialog(
-            onDismissRequest = { showPlaylistMenu = false },
-            title = { Text(tr("Выберите плейлист"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) },
-            text = {
-                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
-                    items(playlists) { playlist ->
-                        val isSelected = currentPlaylist?.id == playlist.id
-                        GroupItem(
-                            onClick = {
-                                showPlaylistMenu = false
-                                viewModel.selectPlaylist(playlist.id)
-                            }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth().padding(12.dp)
+        if (showPlaylistMenu) {
+            val currentPlaylist = playlists.find { it.isSelected } ?: playlists.firstOrNull()
+            InPageDialog(
+                onDismissRequest = { showPlaylistMenu = false },
+                title = { Text(tr("Выберите плейлист"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) },
+                text = {
+                    LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
+                        items(playlists) { playlist ->
+                            val isSelected = currentPlaylist?.id == playlist.id
+                            GroupItem(
+                                onClick = {
+                                    showPlaylistMenu = false
+                                    viewModel.selectPlaylist(playlist.id)
+                                }
                             ) {
-                                RadioButton(selected = isSelected, onClick = null)
-                                Spacer(Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        playlist.name,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                    )
-                                    if (!playlist.enabled) {
-                                        Text(tr("Отключен"), fontSize = 11.sp, color = Color.Gray)
-                                    }
-                                }
-                                if (playlist.password?.isNotBlank() == true) {
-                                    Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(4.dp))
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { showPlaylistMenu = false }) { Text(tr("Отмена")) } }
-        )
-    }
-
-    if (showQrScannerDialog) {
-        QrCodeScannerDialog(
-            viewModel = viewModel,
-            onDismiss = { showQrScannerDialog = false }
-        )
-    }
-
-    if (showAddPlaylistDialog) {
-        AddDialog(
-            title = stringResource(R.string.new_playlist),
-            name = tempPlaylistName,
-            url = tempPlaylistUrl,
-            onName = { tempPlaylistName = it },
-            onUrl = { tempPlaylistUrl = it },
-            onDismiss = { showAddPlaylistDialog = false },
-            onConfirm = {
-                viewModel.addPlaylist(tempPlaylistName, tempPlaylistUrl)
-                showAddPlaylistDialog = false
-            },
-            isAuto = isAuto
-        )
-    }
-
-    if (showWifiTransfer) {
-        WifiTransferDialog(viewModel = viewModel, onDismiss = { showWifiTransfer = false })
-    }
-
-    if (showEpgSearchDialog) {
-        var epgQuery by remember { mutableStateOf("") }
-        val searchResults by viewModel.searchEpgPrograms(epgQuery).collectAsState(emptyList())
-        val timeFormat = SimpleDateFormat("HH:mm, dd MMM", Locale.getDefault())
-
-        InPageDialog(
-            onDismissRequest = { showEpgSearchDialog = false },
-            title = { Text(stringResource(R.string.epg_search), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth().height(350.dp)) {
-                    TextField(
-                        value = epgQuery,
-                        onValueChange = { epgQuery = it },
-                        placeholder = { Text(stringResource(R.string.search)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(searchResults) { program ->
-                            val matchedChannel = channels.find { it.epgId?.equals(program.channelId, ignoreCase = true) == true || it.name.equals(program.channelId, ignoreCase = true) }
-                            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                                Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth().padding(12.dp)
+                                ) {
+                                    RadioButton(selected = isSelected, onClick = null)
+                                    Spacer(Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(program.title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        Text("${timeFormat.format(program.start)} | Channel: ${program.channelId}", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                                    }
-                                    if (program.endTime <= System.currentTimeMillis() && matchedChannel != null) {
-                                        val archiveUrl = CatchupUrlBuilder.build(
-                                            liveUrl = matchedChannel.url,
-                                            sourceTemplate = matchedChannel.catchupSource,
-                                            mode = if (catchupMode == "Auto") (matchedChannel.catchup ?: "Auto") else catchupMode,
-                                            startTimeMs = program.startTime,
-                                            endTimeMs = program.endTime
+                                        val itemTitle = if (hideUrl) playlist.name else playlist.url.ifBlank { playlist.name }
+                                        val itemSubtitle = if (hideUrl) {
+                                            if (!playlist.enabled) tr("Отключен") else null
+                                        } else {
+                                            playlist.name + (if (!playlist.enabled) " • " + tr("Отключен") else "")
+                                        }
+                                        Text(
+                                            itemTitle,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1
                                         )
-                                        if (archiveUrl != null) {
-                                            TextButton(onClick = {
-                                                showEpgSearchDialog = false
-                                                onChannelClick(matchedChannel.copy(url = archiveUrl, name = "${matchedChannel.name} — ${program.title}"))
-                                            }) { Text("Archive") }
+                                        if (!itemSubtitle.isNullOrBlank()) {
+                                            Text(itemSubtitle, fontSize = 11.sp, color = Color.Gray, maxLines = 1)
                                         }
                                     }
-                                    IconButton(onClick = {
-                                        EpgReminderManager.scheduleReminder(
-                                            context = context,
-                                            programTitle = program.title,
-                                            channelName = program.channelId,
-                                            channelUrl = matchedChannel?.url ?: "",
-                                            startTimeMs = program.startTime
-                                        )
-                                        Toast.makeText(context, context.getString(R.string.reminder_set), Toast.LENGTH_SHORT).show()
-                                    }) {
-                                        Icon(Icons.Default.NotificationsActive, stringResource(R.string.set_reminder))
+                                    if (playlist.password?.isNotBlank() == true) {
+                                        Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showPlaylistMenu = false }) { Text(tr("Отмена")) } }
+            )
+        }
+
+        if (showQrScannerDialog) {
+            QrCodeScannerDialog(
+                viewModel = viewModel,
+                onDismiss = { showQrScannerDialog = false }
+            )
+        }
+
+        if (showAddPlaylistDialog) {
+            AddDialog(
+                title = stringResource(R.string.new_playlist),
+                name = tempPlaylistName,
+                url = tempPlaylistUrl,
+                onName = { tempPlaylistName = it },
+                onUrl = { tempPlaylistUrl = it },
+                onDismiss = { showAddPlaylistDialog = false },
+                onConfirm = {
+                    viewModel.addPlaylist(tempPlaylistName, tempPlaylistUrl)
+                    showAddPlaylistDialog = false
+                },
+                isAuto = isAuto
+            )
+        }
+
+        if (showWifiTransfer) {
+            WifiTransferDialog(viewModel = viewModel, onDismiss = { showWifiTransfer = false })
+        }
+
+        if (showEpgSearchDialog) {
+            var epgQuery by remember { mutableStateOf("") }
+            val searchResults by viewModel.searchEpgPrograms(epgQuery).collectAsState(emptyList())
+            val timeFormat = SimpleDateFormat("HH:mm, dd MMM", Locale.getDefault())
+
+            InPageDialog(
+                onDismissRequest = { showEpgSearchDialog = false },
+                title = { Text(stringResource(R.string.epg_search), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth().height(350.dp)) {
+                        TextField(
+                            value = epgQuery,
+                            onValueChange = { epgQuery = it },
+                            placeholder = { Text(stringResource(R.string.search)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        LazyColumn(modifier = Modifier.weight(1f)) {
+                            items(searchResults) { program ->
+                                val matchedChannel = channels.find { it.epgId?.equals(program.channelId, ignoreCase = true) == true || it.name.equals(program.channelId, ignoreCase = true) }
+                                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                    Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(program.title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                            Text("${timeFormat.format(program.start)} | Channel: ${program.channelId}", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                        if (program.endTime <= System.currentTimeMillis() && matchedChannel != null) {
+                                            val archiveUrl = CatchupUrlBuilder.build(
+                                                liveUrl = matchedChannel.url,
+                                                sourceTemplate = matchedChannel.catchupSource,
+                                                mode = if (catchupMode == "Auto") (matchedChannel.catchup ?: "Auto") else catchupMode,
+                                                startTimeMs = program.startTime,
+                                                endTimeMs = program.endTime
+                                            )
+                                            if (archiveUrl != null) {
+                                                TextButton(onClick = {
+                                                    showEpgSearchDialog = false
+                                                    onChannelClick(matchedChannel.copy(url = archiveUrl, name = "${matchedChannel.name} — ${program.title}"))
+                                                }) { Text("Archive") }
+                                            }
+                                        }
+                                        IconButton(onClick = {
+                                            EpgReminderManager.scheduleReminder(
+                                                context = context,
+                                                programTitle = program.title,
+                                                channelName = program.channelId,
+                                                channelUrl = matchedChannel?.url ?: "",
+                                                startTimeMs = program.startTime
+                                            )
+                                            Toast.makeText(context, context.getString(R.string.reminder_set), Toast.LENGTH_SHORT).show()
+                                        }) {
+                                            Icon(Icons.Default.NotificationsActive, stringResource(R.string.set_reminder))
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            },
-            confirmButton = { TextButton(onClick = { showEpgSearchDialog = false }) { Text(stringResource(R.string.close)) } }
-        )
-    }
-
-    if (showChannelMenu != null) {
-        val channel = showChannelMenu!!
-        var ignoreLongPressRelease by remember(channel.url) { mutableStateOf(true) }
-        LaunchedEffect(channel.url) {
-            delay(700)
-            ignoreLongPressRelease = false
+                },
+                confirmButton = { TextButton(onClick = { showEpgSearchDialog = false }) { Text(stringResource(R.string.close)) } }
+            )
         }
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.75f))
-                .clickable { showChannelMenu = null },
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 8.dp,
+
+        if (showChannelMenu != null) {
+            val channel = showChannelMenu!!
+            var ignoreLongPressRelease by remember(channel.url) { mutableStateOf(true) }
+            LaunchedEffect(channel.url) {
+                delay(700)
+                ignoreLongPressRelease = false
+            }
+            Box(
                 modifier = Modifier
-                    .width(340.dp)
-                    .padding(16.dp)
-                    .clickable(enabled = false, onClick = {})
-                    .onPreviewKeyEvent { event ->
-                        val keyCode = event.nativeKeyEvent.keyCode
-                        val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                                keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
-                        if (isConfirm && event.nativeKeyEvent.action == KeyEvent.ACTION_UP && ignoreLongPressRelease) {
-                            ignoreLongPressRelease = false
-                            true
-                        } else {
-                            false
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .clickable { showChannelMenu = null },
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    tonalElevation = 8.dp,
+                    modifier = Modifier
+                        .width(340.dp)
+                        .padding(16.dp)
+                        .clickable(enabled = false, onClick = {})
+                        .onPreviewKeyEvent { event ->
+                            val keyCode = event.nativeKeyEvent.keyCode
+                            val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                    keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                            if (isConfirm && event.nativeKeyEvent.action == KeyEvent.ACTION_UP && ignoreLongPressRelease) {
+                                ignoreLongPressRelease = false
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                ) {
+                    val menuFocusRequester = remember { FocusRequester() }
+                    LaunchedEffect(Unit) {
+                        delay(100)
+                        runCatching { menuFocusRequester.requestFocus() }
+                    }
+
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                        ) {
+                            IconBadge(
+                                icon = Icons.Default.Tv,
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                size = 44.dp,
+                                shapeName = badgeShape,
+                                badgeColorName = badgeColor,
+                                rotationEnabled = iconRotationEnabled
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = channel.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (!channel.category.isNullOrBlank()) {
+                                    Text(
+                                        text = getCategoryDisplayName(channel.category),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        TvMenuItem(
+                            modifier = Modifier.focusRequester(menuFocusRequester),
+                            onClick = { viewModel.toggleFavorite(channel.url); showChannelMenu = null },
+                            icon = if (channel.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            text = if (channel.isFavorite) stringResource(R.string.remove_from_favorites) else stringResource(R.string.add_to_favorites),
+                            shapeName = badgeShape,
+                            badgeColorName = badgeColor
+                        )
+                        TvMenuItem(
+                            onClick = { viewModel.togglePinChannel(channel.url); showChannelMenu = null },
+                            icon = Icons.Default.PushPin,
+                            text = if (channel.isPinned) stringResource(R.string.unpin_channel) else stringResource(R.string.pin_channel),
+                            shapeName = badgeShape,
+                            badgeColorName = badgeColor
+                        )
+                        TvMenuItem(
+                            onClick = {
+                                if (channel.isLocked) {
+                                    showPasswordDialog = Triple(channel, "unlock", "")
+                                } else {
+                                    showPasswordDialog = Triple(channel, "lock", "")
+                                }
+                                showChannelMenu = null
+                            },
+                            icon = if (channel.isLocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                            text = if (channel.isLocked) stringResource(R.string.unlock_channel) else stringResource(R.string.lock_channel),
+                            shapeName = badgeShape,
+                            badgeColorName = badgeColor
+                        )
+                        if (channel.isLocked) {
+                            TvMenuItem(
+                                onClick = { showPasswordDialog = Triple(channel, "change_step1", ""); showChannelMenu = null },
+                                icon = Icons.Default.Password,
+                                text = stringResource(R.string.change_password),
+                                shapeName = badgeShape,
+                                badgeColorName = badgeColor
+                            )
+                        }
+                        TvMenuItem(
+                            onClick = { showMoveChannelDialog = channel; showChannelMenu = null },
+                            icon = Icons.Default.SwapVert,
+                            text = tr("Передвинуть канал"),
+                            shapeName = badgeShape,
+                            badgeColorName = badgeColor
+                        )
+                        TvMenuItem(
+                            onClick = { showEpgSchedule = channel; showChannelMenu = null },
+                            icon = Icons.Default.List,
+                            text = "Full Schedule",
+                            shapeName = badgeShape,
+                            badgeColorName = badgeColor
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        TvMenuItem(
+                            onClick = { showChannelMenu = null },
+                            icon = Icons.Default.Close,
+                            text = stringResource(R.string.close),
+                            shapeName = badgeShape,
+                            badgeColorName = badgeColor
+                        )
+                    }
+                }
+            }
+        }
+
+        if (showPasswordDialog != null) {
+            val (channel, action, oldPass) = showPasswordDialog!!
+            val channelSavedPass = viewModel.getChannelPassword(channel.url) ?: ""
+
+            val onConfirm = {
+                when (action) {
+                    "lock" -> {
+                        if (tempPassword1.isNotEmpty()) {
+                            viewModel.lockChannel(channel.url, tempPassword1)
+                            showPasswordDialog = null
+                            tempPassword1 = ""
                         }
                     }
-            ) {
-                val menuFocusRequester = remember { FocusRequester() }
-                LaunchedEffect(Unit) {
-                    delay(100)
-                    runCatching { menuFocusRequester.requestFocus() }
+                    "play" -> {
+                        if (tempPassword1 == channelSavedPass) {
+                            onChannelClick(channel)
+                            viewModel.updateSetting("last_channel_url", channel.url)
+                            showPasswordDialog = null
+                            tempPassword1 = ""
+                        } else passwordError = true
+                    }
+                    "unlock" -> {
+                        if (viewModel.unlockChannel(channel.url, tempPassword1)) {
+                            showPasswordDialog = null
+                            tempPassword1 = ""
+                        } else passwordError = true
+                    }
+                    "change_step1" -> {
+                        if (tempPassword1 == channelSavedPass) {
+                            val currentTemp1 = tempPassword1
+                            tempPassword1 = ""
+                            showPasswordDialog = Triple(channel, "change_step2", currentTemp1)
+                            passwordError = false
+                        } else passwordError = true
+                    }
+                    "change_step2" -> {
+                        if (tempPassword1.isNotEmpty()) {
+                            viewModel.changeChannelPassword(channel.url, oldPass, tempPassword1)
+                            showPasswordDialog = null
+                            tempPassword1 = ""
+                        }
+                    }
                 }
+            }
 
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
-                    ) {
-                        IconBadge(
-                            icon = Icons.Default.Tv,
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            size = 44.dp,
-                            shapeName = badgeShape,
-                            badgeColorName = badgeColor,
-                            rotationEnabled = iconRotationEnabled
+            InPageDialog(
+                onDismissRequest = { showPasswordDialog = null; tempPassword1 = ""; passwordError = false },
+                title = {
+                    Text(when(action) {
+                        "lock" -> stringResource(R.string.setup_password)
+                        "unlock", "play" -> stringResource(R.string.enter_password)
+                        "change_step1" -> "Enter current password"
+                        "change_step2" -> "Enter new password"
+                        else -> ""
+                    })
+                },
+                text = {
+                    Column {
+                        TextField(
+                            value = tempPassword1,
+                            onValueChange = { tempPassword1 = it },
+                            label = { Text(stringResource(R.string.password)) },
+                            isError = passwordError,
+                            modifier = Modifier.fillMaxWidth().onKeyEvent {
+                                if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER || it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
+                                    if (it.nativeKeyEvent.action == KeyEvent.ACTION_UP) onConfirm()
+                                    true
+                                } else false
+                            },
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { onConfirm() })
                         )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = channel.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                        if (passwordError) {
+                            Text(stringResource(R.string.incorrect_password), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = onConfirm) { Text("OK") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showPasswordDialog = null; tempPassword1 = ""; passwordError = false }) { Text(stringResource(R.string.cancel)) }
+                }
+            )
+        }
+
+        if (showEpgSchedule != null) {
+            val channel = showEpgSchedule!!
+            val schedule by viewModel.getChannelSchedule(channel.url).collectAsState(emptyList())
+            val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+            InPageDialog(
+                onDismissRequest = { showEpgSchedule = null },
+                title = { Text("Schedule: ${channel.name}") },
+                text = {
+                    if (schedule.isEmpty()) {
+                        Text("No programme information")
+                    } else {
+                        LazyColumn(modifier = Modifier.height(400.dp)) {
+                            items(schedule) { program ->
+                                Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(timeFormat.format(program.start), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(program.title, fontWeight = FontWeight.Medium)
+                                        Spacer(Modifier.weight(1f))
+                                        if (program.endTime <= System.currentTimeMillis()) {
+                                            val archiveUrl = CatchupUrlBuilder.build(
+                                                liveUrl = channel.url,
+                                                sourceTemplate = channel.catchupSource,
+                                                mode = if (catchupMode == "Auto") (channel.catchup ?: "Auto") else catchupMode,
+                                                startTimeMs = program.startTime,
+                                                endTimeMs = program.endTime
+                                            )
+                                            if (archiveUrl != null) {
+                                                TextButton(onClick = {
+                                                    showEpgSchedule = null
+                                                    onChannelClick(channel.copy(url = archiveUrl, name = "${channel.name} — ${program.title}"))
+                                                }) { Text("Archive") }
+                                            }
+                                        }
+                                        IconButton(onClick = {
+                                            EpgReminderManager.scheduleReminder(
+                                                context = context,
+                                                programTitle = program.title,
+                                                channelName = channel.name,
+                                                channelUrl = channel.url,
+                                                startTimeMs = program.startTime
+                                            )
+                                            Toast.makeText(context, context.getString(R.string.reminder_set), Toast.LENGTH_SHORT).show()
+                                        }) {
+                                            Icon(Icons.Default.NotificationsActive, stringResource(R.string.set_reminder))
+                                        }
+                                    }
+                                    if (program.description?.isNotEmpty() == true) {
+                                        Text(program.description, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showEpgSchedule = null }) { Text(stringResource(R.string.close)) } }
+            )
+        }
+
+        if (showMoveChannelDialog != null) {
+            val ch = showMoveChannelDialog!!
+            val currentIdx = channels.indexOfFirst { it.url == ch.url }
+            var targetPosText by remember(ch.url) { mutableStateOf((currentIdx + 1).coerceAtLeast(1).toString()) }
+
+            InPageDialog(
+                onDismissRequest = { showMoveChannelDialog = null },
+                title = { Text(tr("Передвинуть канал: {0}", ch.name)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(tr("Текущая позиция: #{0} из {1}", currentIdx + 1, channels.size), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = targetPosText,
+                            onValueChange = { targetPosText = it },
+                            label = { Text(tr("Новая позиция (номер в списке)")) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.moveChannel(ch.url, 0)
+                                    showMoveChannelDialog = null
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("В начало ⤒") }
+                            OutlinedButton(
+                                onClick = {
+                                    val newPos = (currentIdx - 1).coerceAtLeast(0)
+                                    viewModel.moveChannel(ch.url, newPos)
+                                    showMoveChannelDialog = null
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text(tr("Вверх ↑")) }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = {
+                                    val newPos = currentIdx + 1
+                                    viewModel.moveChannel(ch.url, newPos)
+                                    showMoveChannelDialog = null
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text(tr("Вниз ↓")) }
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.moveChannel(ch.url, (channels.size - 1).coerceAtLeast(0))
+                                    showMoveChannelDialog = null
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("В конец ⤓") }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        val newPos = (targetPosText.toIntOrNull() ?: 1) - 1
+                        viewModel.moveChannel(ch.url, newPos)
+                        showMoveChannelDialog = null
+                    }) { Text(tr("Передвинуть")) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showMoveChannelDialog = null }) { Text(tr("Отмена")) }
+                }
+            )
+        }
+
+        if (showFolderMenu != null) {
+            val folderName = showFolderMenu!!
+            val isLocked = viewModel.isFolderLocked(folderName)
+            var ignoreLongPressRelease by remember(folderName) { mutableStateOf(true) }
+            LaunchedEffect(folderName) {
+                delay(700)
+                ignoreLongPressRelease = false
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .clickable { showFolderMenu = null },
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    tonalElevation = 8.dp,
+                    modifier = Modifier
+                        .width(340.dp)
+                        .padding(16.dp)
+                        .clickable(enabled = false, onClick = {})
+                        .onPreviewKeyEvent { event ->
+                            val keyCode = event.nativeKeyEvent.keyCode
+                            val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                    keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                            if (isConfirm && event.nativeKeyEvent.action == KeyEvent.ACTION_UP && ignoreLongPressRelease) {
+                                ignoreLongPressRelease = false
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                        ) {
+                            IconBadge(
+                                icon = Icons.Default.Folder,
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                size = 44.dp,
+                                shapeName = badgeShape,
+                                badgeColorName = badgeColor,
+                                rotationEnabled = iconRotationEnabled
                             )
-                            if (!channel.category.isNullOrBlank()) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = getCategoryDisplayName(channel.category),
+                                    text = getCategoryDisplayName(folderName),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (isLocked) tr("Папка заблокирована") else tr("Категория каналов"),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -882,999 +1397,723 @@ fun MainScreen(
                                 )
                             }
                         }
-                    }
 
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    
-                    TvMenuItem(
-                        modifier = Modifier.focusRequester(menuFocusRequester),
-                        onClick = { viewModel.toggleFavorite(channel.url); showChannelMenu = null },
-                        icon = if (channel.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        text = if (channel.isFavorite) stringResource(R.string.remove_from_favorites) else stringResource(R.string.add_to_favorites),
-                        shapeName = badgeShape,
-                        badgeColorName = badgeColor
-                    )
-                    TvMenuItem(
-                        onClick = { viewModel.togglePinChannel(channel.url); showChannelMenu = null },
-                        icon = Icons.Default.PushPin,
-                        text = if (channel.isPinned) stringResource(R.string.unpin_channel) else stringResource(R.string.pin_channel),
-                        shapeName = badgeShape,
-                        badgeColorName = badgeColor
-                    )
-                    TvMenuItem(
-                        onClick = { 
-                            if (channel.isLocked) {
-                                showPasswordDialog = Triple(channel, "unlock", "")
-                            } else {
-                                showPasswordDialog = Triple(channel, "lock", "")
-                            }
-                            showChannelMenu = null 
-                        },
-                        icon = if (channel.isLocked) Icons.Default.LockOpen else Icons.Default.Lock,
-                        text = if (channel.isLocked) stringResource(R.string.unlock_channel) else stringResource(R.string.lock_channel),
-                        shapeName = badgeShape,
-                        badgeColorName = badgeColor
-                    )
-                    if (channel.isLocked) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
                         TvMenuItem(
-                            onClick = { showPasswordDialog = Triple(channel, "change_step1", ""); showChannelMenu = null },
-                            icon = Icons.Default.Password,
-                            text = stringResource(R.string.change_password),
+                            onClick = {
+                                showMoveFolderDialog = folderName
+                                showFolderMenu = null
+                            },
+                            icon = Icons.Default.SwapVert,
+                            text = tr("Передвинуть категорию"),
+                            shapeName = badgeShape,
+                            badgeColorName = badgeColor
+                        )
+
+                        TvMenuItem(
+                            onClick = {
+                                if (isLocked) {
+                                    folderToUnlock = folderName
+                                    showFolderPasswordPrompt = folderName
+                                } else {
+                                    showFolderLockDialog = folderName
+                                }
+                                showFolderMenu = null
+                            },
+                            icon = if (isLocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                            text = if (isLocked) tr("Снять пароль с папки") else tr("Запаролить папку"),
+                            shapeName = badgeShape,
+                            badgeColorName = badgeColor
+                        )
+
+                        TvMenuItem(
+                            onClick = {
+                                viewModel.toggleHideCategory(folderName)
+                                showFolderMenu = null
+                            },
+                            icon = Icons.Default.VisibilityOff,
+                            text = tr("Скрыть категорию"),
+                            shapeName = badgeShape,
+                            badgeColorName = badgeColor
+                        )
+
+                        Spacer(Modifier.height(4.dp))
+                        TvMenuItem(
+                            onClick = { showFolderMenu = null },
+                            icon = Icons.Default.Close,
+                            text = tr("Закрыть"),
                             shapeName = badgeShape,
                             badgeColorName = badgeColor
                         )
                     }
-                    TvMenuItem(
-                        onClick = { showMoveChannelDialog = channel; showChannelMenu = null },
-                        icon = Icons.Default.SwapVert,
-                        text = tr("Передвинуть канал"),
-                        shapeName = badgeShape,
-                        badgeColorName = badgeColor
-                    )
-                    TvMenuItem(
-                        onClick = { showEpgSchedule = channel; showChannelMenu = null },
-                        icon = Icons.Default.List,
-                        text = "Full Schedule",
-                        shapeName = badgeShape,
-                        badgeColorName = badgeColor
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    TvMenuItem(
-                        onClick = { showChannelMenu = null },
-                        icon = Icons.Default.Close,
-                        text = stringResource(R.string.close),
-                        shapeName = badgeShape,
-                        badgeColorName = badgeColor
-                    )
-                }
-            }
-        }
-    }
-
-    if (showPasswordDialog != null) {
-        val (channel, action, oldPass) = showPasswordDialog!!
-        val channelSavedPass = viewModel.getChannelPassword(channel.url) ?: ""
-        
-        val onConfirm = {
-            when (action) {
-                "lock" -> {
-                    if (tempPassword1.isNotEmpty()) {
-                        viewModel.lockChannel(channel.url, tempPassword1)
-                        showPasswordDialog = null
-                        tempPassword1 = ""
-                    }
-                }
-                "play" -> {
-                    if (tempPassword1 == channelSavedPass) {
-                        onChannelClick(channel)
-                        viewModel.updateSetting("last_channel_url", channel.url)
-                        showPasswordDialog = null
-                        tempPassword1 = ""
-                    } else passwordError = true
-                }
-                "unlock" -> {
-                    if (viewModel.unlockChannel(channel.url, tempPassword1)) {
-                        showPasswordDialog = null
-                        tempPassword1 = ""
-                    } else passwordError = true
-                }
-                "change_step1" -> {
-                    if (tempPassword1 == channelSavedPass) {
-                        val currentTemp1 = tempPassword1
-                        tempPassword1 = ""
-                        showPasswordDialog = Triple(channel, "change_step2", currentTemp1)
-                        passwordError = false
-                    } else passwordError = true
-                }
-                "change_step2" -> {
-                    if (tempPassword1.isNotEmpty()) {
-                        viewModel.changeChannelPassword(channel.url, oldPass, tempPassword1)
-                        showPasswordDialog = null
-                        tempPassword1 = ""
-                    }
                 }
             }
         }
 
-        InPageDialog(
-            onDismissRequest = { showPasswordDialog = null; tempPassword1 = ""; passwordError = false },
-            title = { 
-                Text(when(action) {
-                    "lock" -> stringResource(R.string.setup_password)
-                    "unlock", "play" -> stringResource(R.string.enter_password)
-                    "change_step1" -> "Enter current password"
-                    "change_step2" -> "Enter new password"
-                    else -> ""
-                })
-            },
-            text = {
-                Column {
-                    TextField(
-                        value = tempPassword1,
-                        onValueChange = { tempPassword1 = it },
-                        label = { Text(stringResource(R.string.password)) },
-                        isError = passwordError,
-                        modifier = Modifier.fillMaxWidth().onKeyEvent {
-                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER || it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
-                                if (it.nativeKeyEvent.action == KeyEvent.ACTION_UP) onConfirm()
-                                true
-                            } else false
-                        },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { onConfirm() })
-                    )
-                    if (passwordError) {
-                        Text(stringResource(R.string.incorrect_password), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = onConfirm) { Text("OK") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPasswordDialog = null; tempPassword1 = ""; passwordError = false }) { Text(stringResource(R.string.cancel)) }
-            }
-        )
-    }
+        if (showMoveFolderDialog != null) {
+            val folder = showMoveFolderDialog!!
+            val visibleCats = visibleCategories.filterNot { it in listOf("All", "Favorites", "Recent") }
+            val currentIdx = visibleCats.indexOf(folder)
+            var targetPosText by remember(folder) { mutableStateOf((currentIdx + 1).coerceAtLeast(1).toString()) }
 
-    if (showEpgSchedule != null) {
-        val channel = showEpgSchedule!!
-        val schedule by viewModel.getChannelSchedule(channel.url).collectAsState(emptyList())
-        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-
-        InPageDialog(
-            onDismissRequest = { showEpgSchedule = null },
-            title = { Text("Schedule: ${channel.name}") },
-            text = {
-                if (schedule.isEmpty()) {
-                    Text("No programme information")
-                } else {
-                    LazyColumn(modifier = Modifier.height(400.dp)) {
-                        items(schedule) { program ->
-                            Column(modifier = Modifier.padding(vertical = 8.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(timeFormat.format(program.start), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(program.title, fontWeight = FontWeight.Medium)
-                                    Spacer(Modifier.weight(1f))
-                                    if (program.endTime <= System.currentTimeMillis()) {
-                                        val archiveUrl = CatchupUrlBuilder.build(
-                                            liveUrl = channel.url,
-                                            sourceTemplate = channel.catchupSource,
-                                            mode = if (catchupMode == "Auto") (channel.catchup ?: "Auto") else catchupMode,
-                                            startTimeMs = program.startTime,
-                                            endTimeMs = program.endTime
-                                        )
-                                        if (archiveUrl != null) {
-                                            TextButton(onClick = {
-                                                showEpgSchedule = null
-                                                onChannelClick(channel.copy(url = archiveUrl, name = "${channel.name} — ${program.title}"))
-                                            }) { Text("Archive") }
-                                        }
-                                    }
-                                    IconButton(onClick = {
-                                        EpgReminderManager.scheduleReminder(
-                                            context = context,
-                                            programTitle = program.title,
-                                            channelName = channel.name,
-                                            channelUrl = channel.url,
-                                            startTimeMs = program.startTime
-                                        )
-                                        Toast.makeText(context, context.getString(R.string.reminder_set), Toast.LENGTH_SHORT).show()
-                                    }) {
-                                        Icon(Icons.Default.NotificationsActive, stringResource(R.string.set_reminder))
-                                    }
-                                }
-                                if (program.description?.isNotEmpty() == true) {
-                                    Text(program.description, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { showEpgSchedule = null }) { Text(stringResource(R.string.close)) } }
-        )
-    }
-
-    if (showMoveChannelDialog != null) {
-        val ch = showMoveChannelDialog!!
-        val currentIdx = channels.indexOfFirst { it.url == ch.url }
-        var targetPosText by remember(ch.url) { mutableStateOf((currentIdx + 1).coerceAtLeast(1).toString()) }
-
-        InPageDialog(
-            onDismissRequest = { showMoveChannelDialog = null },
-            title = { Text(tr("Передвинуть канал: {0}", ch.name)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(tr("Текущая позиция: #{0} из {1}", currentIdx + 1, channels.size), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                    OutlinedTextField(
-                        value = targetPosText,
-                        onValueChange = { targetPosText = it },
-                        label = { Text(tr("Новая позиция (номер в списке)")) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.moveChannel(ch.url, 0)
-                                showMoveChannelDialog = null
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) { Text("В начало ⤒") }
-                        OutlinedButton(
-                            onClick = {
-                                val newPos = (currentIdx - 1).coerceAtLeast(0)
-                                viewModel.moveChannel(ch.url, newPos)
-                                showMoveChannelDialog = null
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) { Text(tr("Вверх ↑")) }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = {
-                                val newPos = currentIdx + 1
-                                viewModel.moveChannel(ch.url, newPos)
-                                showMoveChannelDialog = null
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) { Text(tr("Вниз ↓")) }
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.moveChannel(ch.url, (channels.size - 1).coerceAtLeast(0))
-                                showMoveChannelDialog = null
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) { Text("В конец ⤓") }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    val newPos = (targetPosText.toIntOrNull() ?: 1) - 1
-                    viewModel.moveChannel(ch.url, newPos)
-                    showMoveChannelDialog = null
-                }) { Text(tr("Передвинуть")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showMoveChannelDialog = null }) { Text(tr("Отмена")) }
-            }
-        )
-    }
-
-    if (showFolderMenu != null) {
-        val folderName = showFolderMenu!!
-        val isLocked = viewModel.isFolderLocked(folderName)
-        var ignoreLongPressRelease by remember(folderName) { mutableStateOf(true) }
-        LaunchedEffect(folderName) {
-            delay(700)
-            ignoreLongPressRelease = false
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.75f))
-                .clickable { showFolderMenu = null },
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 8.dp,
-                modifier = Modifier
-                    .width(340.dp)
-                    .padding(16.dp)
-                    .clickable(enabled = false, onClick = {})
-                    .onPreviewKeyEvent { event ->
-                        val keyCode = event.nativeKeyEvent.keyCode
-                        val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                                keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
-                        if (isConfirm && event.nativeKeyEvent.action == KeyEvent.ACTION_UP && ignoreLongPressRelease) {
-                            ignoreLongPressRelease = false
-                            true
-                        } else {
-                            false
-                        }
-                    }
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
-                    ) {
-                        IconBadge(
-                            icon = Icons.Default.Folder,
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            size = 44.dp,
-                            shapeName = badgeShape,
-                            badgeColorName = badgeColor,
-                            rotationEnabled = iconRotationEnabled
+            InPageDialog(
+                onDismissRequest = { showMoveFolderDialog = null },
+                title = { Text(tr("Передвинуть категорию: {0}", getCategoryDisplayName(folder))) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(tr("Текущая позиция: #{0}", currentIdx + 1), style = MaterialTheme.typography.bodyMedium)
+                        OutlinedTextField(
+                            value = targetPosText,
+                            onValueChange = { targetPosText = it },
+                            label = { Text(tr("Новая позиция")) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
                         )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = getCategoryDisplayName(folderName),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = if (isLocked) tr("Папка заблокирована") else tr("Категория каналов"),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val newPos = (currentIdx - 1).coerceAtLeast(0)
+                                    viewModel.moveCategory(folder, newPos)
+                                    showMoveFolderDialog = null
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text(tr("Вверх ↑")) }
+                            OutlinedButton(
+                                onClick = {
+                                    val newPos = currentIdx + 1
+                                    viewModel.moveCategory(folder, newPos)
+                                    showMoveFolderDialog = null
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text(tr("Вниз ↓")) }
                         }
                     }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                    TvMenuItem(
-                        onClick = {
-                            showMoveFolderDialog = folderName
-                            showFolderMenu = null
-                        },
-                        icon = Icons.Default.SwapVert,
-                        text = tr("Передвинуть категорию"),
-                        shapeName = badgeShape,
-                        badgeColorName = badgeColor
-                    )
-
-                    TvMenuItem(
-                        onClick = {
-                            if (isLocked) {
-                                folderToUnlock = folderName
-                                showFolderPasswordPrompt = folderName
-                            } else {
-                                showFolderLockDialog = folderName
-                            }
-                            showFolderMenu = null
-                        },
-                        icon = if (isLocked) Icons.Default.LockOpen else Icons.Default.Lock,
-                        text = if (isLocked) tr("Снять пароль с папки") else tr("Запаролить папку"),
-                        shapeName = badgeShape,
-                        badgeColorName = badgeColor
-                    )
-
-                    TvMenuItem(
-                        onClick = {
-                            viewModel.toggleHideCategory(folderName)
-                            showFolderMenu = null
-                        },
-                        icon = Icons.Default.VisibilityOff,
-                        text = tr("Скрыть категорию"),
-                        shapeName = badgeShape,
-                        badgeColorName = badgeColor
-                    )
-
-                    Spacer(Modifier.height(4.dp))
-                    TvMenuItem(
-                        onClick = { showFolderMenu = null },
-                        icon = Icons.Default.Close,
-                        text = tr("Закрыть"),
-                        shapeName = badgeShape,
-                        badgeColorName = badgeColor
-                    )
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        val newPos = (targetPosText.toIntOrNull() ?: 1) - 1
+                        viewModel.moveCategory(folder, newPos)
+                        showMoveFolderDialog = null
+                    }) { Text(tr("Передвинуть")) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showMoveFolderDialog = null }) { Text(tr("Отмена")) }
                 }
-            }
+            )
         }
-    }
 
-    if (showMoveFolderDialog != null) {
-        val folder = showMoveFolderDialog!!
-        val visibleCats = visibleCategories.filterNot { it in listOf("All", "Favorites", "Recent") }
-        val currentIdx = visibleCats.indexOf(folder)
-        var targetPosText by remember(folder) { mutableStateOf((currentIdx + 1).coerceAtLeast(1).toString()) }
+        if (showFolderLockDialog != null) {
+            val folder = showFolderLockDialog!!
+            var passText by remember { mutableStateOf("") }
 
-        InPageDialog(
-            onDismissRequest = { showMoveFolderDialog = null },
-            title = { Text(tr("Передвинуть категорию: {0}", getCategoryDisplayName(folder))) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(tr("Текущая позиция: #{0}", currentIdx + 1), style = MaterialTheme.typography.bodyMedium)
+            InPageDialog(
+                onDismissRequest = { showFolderLockDialog = null },
+                title = { Text(tr("Запаролить папку: {0}", getCategoryDisplayName(folder))) },
+                text = {
                     OutlinedTextField(
-                        value = targetPosText,
-                        onValueChange = { targetPosText = it },
-                        label = { Text(tr("Новая позиция")) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        value = passText,
+                        onValueChange = { passText = it },
+                        label = { Text(tr("Введите новый пароль для папки")) },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = {
-                                val newPos = (currentIdx - 1).coerceAtLeast(0)
-                                viewModel.moveCategory(folder, newPos)
-                                showMoveFolderDialog = null
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) { Text(tr("Вверх ↑")) }
-                        OutlinedButton(
-                            onClick = {
-                                val newPos = currentIdx + 1
-                                viewModel.moveCategory(folder, newPos)
-                                showMoveFolderDialog = null
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) { Text(tr("Вниз ↓")) }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    val newPos = (targetPosText.toIntOrNull() ?: 1) - 1
-                    viewModel.moveCategory(folder, newPos)
-                    showMoveFolderDialog = null
-                }) { Text(tr("Передвинуть")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showMoveFolderDialog = null }) { Text(tr("Отмена")) }
-            }
-        )
-    }
-
-    if (showFolderLockDialog != null) {
-        val folder = showFolderLockDialog!!
-        var passText by remember { mutableStateOf("") }
-
-        InPageDialog(
-            onDismissRequest = { showFolderLockDialog = null },
-            title = { Text(tr("Запаролить папку: {0}", getCategoryDisplayName(folder))) },
-            text = {
-                OutlinedTextField(
-                    value = passText,
-                    onValueChange = { passText = it },
-                    label = { Text(tr("Введите новый пароль для папки")) },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    if (passText.isNotBlank()) {
-                        viewModel.lockFolder(folder, passText)
-                        Toast.makeText(context, tr("Папка запаролена"), Toast.LENGTH_SHORT).show()
-                    }
-                    showFolderLockDialog = null
-                }) { Text(tr("Установить пароль")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showFolderLockDialog = null }) { Text(tr("Отмена")) }
-            }
-        )
-    }
-
-    if (showFolderPasswordPrompt != null) {
-        val folder = showFolderPasswordPrompt!!
-        val expectedPass = viewModel.getFolderPassword(folder) ?: ""
-        var passInput by remember { mutableStateOf("") }
-        var passError by remember { mutableStateOf(false) }
-
-        InPageDialog(
-            onDismissRequest = { 
-                showFolderPasswordPrompt = null
-                folderToUnlock = null
-            },
-            title = { Text(if (folderToUnlock == folder) tr("Введите пароль для снятия защиты") else tr("Папка защищена паролем")) },
-            text = {
-                Column {
-                    Text(getCategoryDisplayName(folder), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = passInput,
-                        onValueChange = { passInput = it; passError = false },
-                        label = { Text(tr("Пароль")) },
-                        singleLine = true,
-                        isError = passError,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         modifier = Modifier.fillMaxWidth()
                     )
-                    if (passError) {
-                        Text(tr("Неверный пароль"), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    if (passInput == expectedPass) {
-                        if (folderToUnlock == folder) {
-                            viewModel.unlockFolder(folder)
-                            Toast.makeText(context, tr("Пароль с папки снят"), Toast.LENGTH_SHORT).show()
-                            folderToUnlock = null
-                        } else {
-                            viewModel.selectFolder(folder)
-                            viewModel.selectCategory(folder)
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        if (passText.isNotBlank()) {
+                            viewModel.lockFolder(folder, passText)
+                            Toast.makeText(context, tr("Папка запаролена"), Toast.LENGTH_SHORT).show()
                         }
-                        showFolderPasswordPrompt = null
-                    } else {
-                        passError = true
-                    }
-                }) { Text("OK") }
-            },
-            dismissButton = {
-                TextButton(onClick = { 
+                        showFolderLockDialog = null
+                    }) { Text(tr("Установить пароль")) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showFolderLockDialog = null }) { Text(tr("Отмена")) }
+                }
+            )
+        }
+
+        if (showFolderPasswordPrompt != null) {
+            val folder = showFolderPasswordPrompt!!
+            val expectedPass = viewModel.getFolderPassword(folder) ?: ""
+            var passInput by remember { mutableStateOf("") }
+            var passError by remember { mutableStateOf(false) }
+
+            InPageDialog(
+                onDismissRequest = {
                     showFolderPasswordPrompt = null
                     folderToUnlock = null
-                }) { Text(tr("Отмена")) }
-            }
-        )
-    }
+                },
+                title = { Text(if (folderToUnlock == folder) tr("Введите пароль для снятия защиты") else tr("Папка защищена паролем")) },
+                text = {
+                    Column {
+                        Text(getCategoryDisplayName(folder), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = passInput,
+                            onValueChange = { passInput = it; passError = false },
+                            label = { Text(tr("Пароль")) },
+                            singleLine = true,
+                            isError = passError,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (passError) {
+                            Text(tr("Неверный пароль"), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        if (passInput == expectedPass) {
+                            if (folderToUnlock == folder) {
+                                viewModel.unlockFolder(folder)
+                                Toast.makeText(context, tr("Пароль с папки снят"), Toast.LENGTH_SHORT).show()
+                                folderToUnlock = null
+                            } else {
+                                viewModel.selectFolder(folder)
+                                viewModel.selectCategory(folder)
+                            }
+                            showFolderPasswordPrompt = null
+                        } else {
+                            passError = true
+                        }
+                    }) { Text("OK") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showFolderPasswordPrompt = null
+                        folderToUnlock = null
+                    }) { Text(tr("Отмена")) }
+                }
+            )
+        }
 
-    if (showCarKeyboardDialog) {
-        CarOnScreenKeyboardDialog(
-            initialText = searchQuery,
-            onDismiss = { showCarKeyboardDialog = false },
-            onConfirm = { query ->
-                isSearchExpanded = true
-                viewModel.updateSearchQuery(query)
-            }
-        )
-    }
+        if (showCarKeyboardDialog) {
+            CarOnScreenKeyboardDialog(
+                initialText = searchQuery,
+                onDismiss = { showCarKeyboardDialog = false },
+                onConfirm = { query ->
+                    isSearchExpanded = true
+                    viewModel.updateSearchQuery(query)
+                }
+            )
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun CategoryFolderCard(
-    title: String,
-    count: Int,
-    uiStyle: String,
-    isLocked: Boolean = false,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit = {}
-) {
-    var isFocused by remember { mutableStateOf(false) }
-    var isLongPressHandled by remember { mutableStateOf(false) }
-    var isOkKeyDown by remember { mutableStateOf(false) }
-    var longPressJob by remember { mutableStateOf<Job?>(null) }
-    val keyScope = rememberCoroutineScope()
-    val cardShape = if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else MaterialTheme.shapes.medium
+    @OptIn(ExperimentalFoundationApi::class)
+    @Composable
+    internal fun CategoryFolderCard(
+        title: String,
+        count: Int,
+        uiStyle: String,
+        isLocked: Boolean = false,
+        onClick: () -> Unit,
+        onLongClick: () -> Unit = {}
+    ) {
+        var isFocused by remember { mutableStateOf(false) }
+        var isLongPressHandled by remember { mutableStateOf(false) }
+        var isOkKeyDown by remember { mutableStateOf(false) }
+        var longPressJob by remember { mutableStateOf<Job?>(null) }
+        val keyScope = rememberCoroutineScope()
+        val cardShape = if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else MaterialTheme.shapes.medium
 
-    Surface(
-        shape = cardShape,
-        tonalElevation = if (isFocused) 8.dp else 1.dp,
-        color = if (uiStyle == "LiquidGlass") Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(110.dp)
-            .onFocusChanged { isFocused = it.isFocused }
-            .scale(if (isFocused) 1.08f else 1f)
-            .border(
-                width = if (isFocused) 3.dp else 0.dp,
-                color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
-                shape = cardShape
-            )
-            .focusable()
-            .onPreviewKeyEvent { event ->
-                val keyCode = event.nativeKeyEvent.keyCode
-                val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                    keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
-                if (!isConfirm) return@onPreviewKeyEvent false
-                when (event.nativeKeyEvent.action) {
-                    KeyEvent.ACTION_DOWN -> {
-                        if (!isOkKeyDown) {
-                            isOkKeyDown = true
-                            isLongPressHandled = false
+        Surface(
+            shape = cardShape,
+            tonalElevation = if (uiStyle == "LiquidGlass") 0.dp else (if (isFocused) 8.dp else 1.dp),
+            color = if (uiStyle == "LiquidGlass") Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(110.dp)
+                .onFocusChanged { isFocused = it.isFocused }
+                .scale(if (isFocused) 1.08f else 1f)
+                .border(
+                    width = if (isFocused) 3.dp else (if (uiStyle == "LiquidGlass") 1.dp else 0.dp),
+                    color = if (isFocused) MaterialTheme.colorScheme.primary else (if (uiStyle == "LiquidGlass") Color.White.copy(alpha = 0.30f) else Color.Transparent),
+                    shape = cardShape
+                )
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    val keyCode = event.nativeKeyEvent.keyCode
+                    val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                            keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                    if (!isConfirm) return@onPreviewKeyEvent false
+                    when (event.nativeKeyEvent.action) {
+                        KeyEvent.ACTION_DOWN -> {
+                            if (!isOkKeyDown) {
+                                isOkKeyDown = true
+                                isLongPressHandled = false
+                                longPressJob?.cancel()
+                                longPressJob = keyScope.launch {
+                                    delay(550)
+                                    if (isOkKeyDown && !isLongPressHandled) {
+                                        isLongPressHandled = true
+                                        onLongClick()
+                                    }
+                                }
+                            }
+                            true
+                        }
+                        KeyEvent.ACTION_UP -> {
+                            isOkKeyDown = false
                             longPressJob?.cancel()
-                            longPressJob = keyScope.launch {
-                                delay(550)
-                                if (isOkKeyDown && !isLongPressHandled) {
-                                    isLongPressHandled = true
-                                    onLongClick()
+                            longPressJob = null
+                            if (!isLongPressHandled) onClick()
+                            true
+                        }
+                        else -> true
+                    }
+                }
+                .combinedClickable(
+                    onClick = { if (!isLongPressHandled) onClick() },
+                    onLongClick = onLongClick
+                )
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp).fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(contentAlignment = Alignment.TopEnd) {
+                    Icon(
+                        imageVector = when(title) {
+                            "Favorites" -> Icons.Default.Favorite
+                            "Recent" -> Icons.Default.History
+                            else -> Icons.Default.Folder
+                        },
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    if (isLocked) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = Color.Gray,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(getCategoryDisplayName(title), fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+                Text(stringResource(R.string.folder_channels_count, count), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+
+    @Composable
+    fun TvMenuItem(
+        onClick: () -> Unit,
+        icon: androidx.compose.ui.graphics.vector.ImageVector,
+        text: String,
+        modifier: Modifier = Modifier,
+        shapeName: String = "Cookie",
+        badgeColorName: String = "Purple",
+        rotationEnabled: Boolean = false
+    ) {
+        var isFocused by remember { mutableStateOf(false) }
+        var isKeyDownOnMe by remember { mutableStateOf(false) }
+
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = if (isFocused) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 3.dp)
+                .onFocusChanged { isFocused = it.isFocused }
+                .scale(if (isFocused) 1.03f else 1f)
+                .border(
+                    width = if (isFocused) 2.dp else 0.dp,
+                    color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                    shape = RoundedCornerShape(16.dp)
+                )
+                .onPreviewKeyEvent { event ->
+                    val keyCode = event.nativeKeyEvent.keyCode
+                    val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                            keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                    if (!isConfirm) return@onPreviewKeyEvent false
+                    when (event.nativeKeyEvent.action) {
+                        KeyEvent.ACTION_DOWN -> {
+                            isKeyDownOnMe = true
+                            true
+                        }
+                        KeyEvent.ACTION_UP -> {
+                            if (isKeyDownOnMe) {
+                                isKeyDownOnMe = false
+                                onClick()
+                            }
+                            true
+                        }
+                        else -> true
+                    }
+                }
+                .clickable { onClick() }
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                IconBadge(
+                    icon = icon,
+                    containerColor = if (isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (isFocused) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    size = 36.dp,
+                    shapeName = shapeName,
+                    badgeColorName = badgeColorName,
+                    rotationEnabled = rotationEnabled
+                )
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (isFocused) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+
+    fun channelGridCells(mode: String): GridCells = when (mode) {
+        "SimpleList", "CompactList", "CompactList2" -> GridCells.Fixed(1)
+        "SideBySide", "SideBySideLarge", "SideBySideHuge" -> GridCells.Fixed(2)
+        "SideBySideSmall" -> GridCells.Fixed(3)
+        "NarrowCards" -> GridCells.Fixed(4)
+        "SmallCards" -> GridCells.Adaptive(minSize = 112.dp)
+        "LargeCards" -> GridCells.Adaptive(minSize = 220.dp)
+        "Compact" -> GridCells.Adaptive(minSize = 140.dp)
+        "Large" -> GridCells.Adaptive(minSize = 220.dp)
+        else -> GridCells.Adaptive(minSize = 160.dp)
+    }
+
+    @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+    @Composable
+    fun ChannelCard(
+        channel: IptvChannel,
+        currentProgram: EpgProgram?,
+        nextProgram: EpgProgram?,
+        viewingTime: Long,
+        fontSize: Float,
+        listSize: String,
+        uiStyle: String,
+        epgProgressStyle: String = "Wavy",
+        channelNumber: Int? = null,
+        cornerRadius: Int = 22,
+        scaleIntensity: Float = 1.08f,
+        glowEnabled: Boolean = true,
+        onClick: () -> Unit,
+        onLongClick: () -> Unit
+    ) {
+        val isListLayout = listSize in listOf("SimpleList", "CompactList", "CompactList2")
+        val height = when (listSize) {
+            "SimpleList" -> 88.dp
+            "CompactList" -> 68.dp
+            "CompactList2" -> 54.dp
+            "Compact" -> 160.dp
+            "Large", "LargeCards" -> 220.dp
+            "SmallCards" -> 138.dp
+            "NarrowCards" -> 118.dp
+            "SideBySideSmall" -> 132.dp
+            "SideBySideLarge" -> 220.dp
+            "SideBySideHuge" -> 270.dp
+            else -> 185.dp
+        }
+        val cardShape = when (listSize) {
+            "NarrowCards" -> RoundedCornerShape(6.dp)
+            "SmallCards", "SideBySideSmall" -> RoundedCornerShape(10.dp)
+            "LargeCards", "SideBySideLarge", "SideBySideHuge" -> RoundedCornerShape(cornerRadius.dp)
+            else -> if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else RoundedCornerShape(cornerRadius.dp)
+        }
+        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+        var isFocused by remember { mutableStateOf(false) }
+        var isLongPressHandled by remember { mutableStateOf(false) }
+        var isOkKeyDown by remember { mutableStateOf(false) }
+        var longPressJob by remember { mutableStateOf<Job?>(null) }
+        val keyScope = rememberCoroutineScope()
+
+        Surface(
+            shape = cardShape,
+            tonalElevation = if (uiStyle == "LiquidGlass") 0.dp else (if (isFocused) 8.dp else 1.dp),
+            color = if (uiStyle == "LiquidGlass") Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (isListLayout) Modifier.height(height) else Modifier.height(height))
+                .onFocusChanged { isFocused = it.isFocused }
+                .scale(if (isFocused) scaleIntensity else 1f)
+                .border(
+                    width = if (isFocused && glowEnabled) 3.dp else (if (uiStyle == "LiquidGlass") 1.dp else 0.dp),
+                    color = if (isFocused && glowEnabled) MaterialTheme.colorScheme.primary else (if (uiStyle == "LiquidGlass") Color.White.copy(alpha = 0.30f) else Color.Transparent),
+                    shape = cardShape
+                )
+                // Handle remote OK before clickable semantics. Some TV remotes do not
+                // emit repeat events, so use a timer rather than relying on repeatCount.
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    val keyCode = event.nativeKeyEvent.keyCode
+                    val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                            keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                    if (!isConfirm) return@onPreviewKeyEvent false
+                    when (event.nativeKeyEvent.action) {
+                        KeyEvent.ACTION_DOWN -> {
+                            if (!isOkKeyDown) {
+                                isOkKeyDown = true
+                                isLongPressHandled = false
+                                longPressJob?.cancel()
+                                longPressJob = keyScope.launch {
+                                    delay(550)
+                                    if (isOkKeyDown && !isLongPressHandled) {
+                                        isLongPressHandled = true
+                                        onLongClick()
+                                    }
+                                }
+                            }
+                            true
+                        }
+                        KeyEvent.ACTION_UP -> {
+                            isOkKeyDown = false
+                            longPressJob?.cancel()
+                            longPressJob = null
+                            // Keep the long-press flag until the next ACTION_DOWN so a
+                            // combinedClickable release cannot trigger a normal click and close the menu.
+                            if (!isLongPressHandled) onClick()
+                            true
+                        }
+                        else -> true
+                    }
+                }
+                .combinedClickable(
+                    onClick = { if (!isLongPressHandled) onClick() },
+                    onLongClick = onLongClick
+                )
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (isListLayout) {
+                    Row(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = if (listSize == "CompactList2") 5.dp else 9.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        AsyncImage(
+                            model = channel.logoUrl,
+                            contentDescription = null,
+                            modifier = Modifier.size(if (listSize == "CompactList2") 34.dp else 48.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                            val displayName = if (channelNumber != null) "#$channelNumber ${channel.name}" else channel.name
+                            Text(displayName, maxLines = 1, fontSize = (if (listSize == "CompactList2") fontSize - 2 else fontSize).sp, fontWeight = FontWeight.Bold)
+                            if (channel.isLocked) {
+                                Text("🔒", fontSize = 10.sp)
+                            } else if (currentProgram != null) {
+                                Text(currentProgram.title, maxLines = 1, fontSize = (fontSize - 3).coerceAtLeast(8f).sp, color = MaterialTheme.colorScheme.primary)
+                                if (listSize != "CompactList2") Text("${timeFormat.format(currentProgram.start)} - ${timeFormat.format(currentProgram.stop)}", fontSize = (fontSize - 5).coerceAtLeast(8f).sp, color = Color.Gray)
+                            } else if (listSize == "SimpleList") {
+                                Text(stringResource(R.string.no_program_info), maxLines = 1, fontSize = (fontSize - 3).coerceAtLeast(8f).sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        if (channel.isFavorite) Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(14.dp))
+                        if (channel.isPinned) Icon(Icons.Default.PushPin, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                    }
+                } else {
+                    Column(modifier = Modifier.padding(if (listSize == "NarrowCards") 4.dp else 8.dp).fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .heightIn(max = if (listSize == "Compact") 48.dp else 75.dp)
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AsyncImage(
+                                model = channel.logoUrl,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize().padding(8.dp),
+                                contentScale = ContentScale.Fit
+                            )
+                            val chCatchup = channel.catchup?.trim()?.lowercase(Locale.ROOT)
+                            val isExplicitlyDisabled = chCatchup == "none" || chCatchup == "0" || chCatchup == "false"
+                            val hasCatchup = !isExplicitlyDisabled && (
+                                    !channel.catchupSource.isNullOrBlank() ||
+                                            !channel.catchup.isNullOrBlank() ||
+                                            (channel.catchupDays != null && channel.catchupDays > 0)
+                                    )
+                            if (hasCatchup) {
+                                Surface(
+                                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp).size(18.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                    shape = RoundedCornerShape(5.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.History,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
-                        true
-                    }
-                    KeyEvent.ACTION_UP -> {
-                        isOkKeyDown = false
-                        longPressJob?.cancel()
-                        longPressJob = null
-                        if (!isLongPressHandled) onClick()
-                        true
-                    }
-                    else -> true
-                }
-            }
-            .combinedClickable(
-                onClick = { if (!isLongPressHandled) onClick() },
-                onLongClick = onLongClick
-            )
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp).fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Box(contentAlignment = Alignment.TopEnd) {
-                Icon(
-                    imageVector = when(title) {
-                        "Favorites" -> Icons.Default.Favorite
-                        "Recent" -> Icons.Default.History
-                        else -> Icons.Default.Folder
-                    },
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(36.dp)
-                )
-                if (isLocked) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = Color.Gray,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(getCategoryDisplayName(title), fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
-            Text(stringResource(R.string.folder_channels_count, count), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
 
-@Composable
-fun TvMenuItem(
-    onClick: () -> Unit,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    text: String,
-    modifier: Modifier = Modifier,
-    shapeName: String = "Cookie",
-    badgeColorName: String = "Purple",
-    rotationEnabled: Boolean = false
-) {
-    var isFocused by remember { mutableStateOf(false) }
-    var isKeyDownOnMe by remember { mutableStateOf(false) }
+                        Spacer(modifier = Modifier.height(4.dp))
 
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = if (isFocused) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp)
-            .onFocusChanged { isFocused = it.isFocused }
-            .scale(if (isFocused) 1.03f else 1f)
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
-                shape = RoundedCornerShape(16.dp)
-            )
-            .onPreviewKeyEvent { event ->
-                val keyCode = event.nativeKeyEvent.keyCode
-                val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                        keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
-                if (!isConfirm) return@onPreviewKeyEvent false
-                when (event.nativeKeyEvent.action) {
-                    KeyEvent.ACTION_DOWN -> {
-                        isKeyDownOnMe = true
-                        true
-                    }
-                    KeyEvent.ACTION_UP -> {
-                        if (isKeyDownOnMe) {
-                            isKeyDownOnMe = false
-                            onClick()
+                        Text(
+                            text = if (channelNumber != null) "#$channelNumber ${channel.name}" else channel.name,
+                            style = MaterialTheme.typography.titleSmall.copy(fontSize = fontSize.sp),
+                            maxLines = 1,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        if (channel.isLocked) {
+                            Icon(Icons.Default.Lock, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                        } else if (currentProgram != null) {
+                            val now = System.currentTimeMillis()
+                            val total = (currentProgram.endTime - currentProgram.startTime).toFloat()
+                            val progress = if (total > 0) (now - currentProgram.startTime) / total else 0f
+
+                            Text(
+                                text = currentProgram.title,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = (fontSize - 2).sp),
+                                maxLines = 1,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "${timeFormat.format(currentProgram.start)} - ${timeFormat.format(currentProgram.stop)}",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = (fontSize - 4).sp),
+                                color = Color.Gray
+                            )
+
+                            EpgProgressBar(
+                                progress = progress.coerceIn(0f, 1f),
+                                style = epgProgressStyle,
+                                modifier = Modifier.fillMaxWidth().height(6.dp).padding(vertical = 1.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+
+                            if (nextProgram != null) {
+                                Text(
+                                    text = "Next: ${nextProgram.title}",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = (fontSize - 4).sp),
+                                    maxLines = 1,
+                                    color = Color.Gray
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "No programme information",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = (fontSize - 2).sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                        true
                     }
-                    else -> true
+                }
+
+                if (viewingTime > 0) {
+                    val hours = viewingTime / 3600
+                    val minutes = (viewingTime % 3600) / 60
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                        shape = CircleShape,
+                        modifier = Modifier.align(Alignment.Center)
+                    ) {
+                        Text(
+                            text = String.format(Locale.US, "⏱ %02d:%02d h", hours, minutes),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Row(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (channel.isPinned) {
+                        Icon(Icons.Default.PushPin, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    }
+                    if (channel.isFavorite) {
+                        Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                    }
                 }
             }
-            .clickable { onClick() }
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-        ) {
-            IconBadge(
-                icon = icon,
-                containerColor = if (isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = if (isFocused) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                size = 36.dp,
-                shapeName = shapeName,
-                badgeColorName = badgeColorName,
-                rotationEnabled = rotationEnabled
-            )
-            Text(
-                text = text,
-                style = MaterialTheme.typography.titleMedium,
-                color = if (isFocused) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
         }
     }
-}
 
-private fun channelGridCells(mode: String): GridCells = when (mode) {
-    "SimpleList", "CompactList", "CompactList2" -> GridCells.Fixed(1)
-    "SideBySide", "SideBySideLarge", "SideBySideHuge" -> GridCells.Fixed(2)
-    "SideBySideSmall" -> GridCells.Fixed(3)
-    "NarrowCards" -> GridCells.Fixed(4)
-    "SmallCards" -> GridCells.Adaptive(minSize = 112.dp)
-    "LargeCards" -> GridCells.Adaptive(minSize = 220.dp)
-    "Compact" -> GridCells.Adaptive(minSize = 140.dp)
-    "Large" -> GridCells.Adaptive(minSize = 220.dp)
-    else -> GridCells.Adaptive(minSize = 160.dp)
-}
-
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun ChannelCard(
-    channel: IptvChannel,
-    currentProgram: EpgProgram?,
-    nextProgram: EpgProgram?,
-    viewingTime: Long,
+private fun ChannelGridContent(
+    channels: List<IptvChannel>,
+    currentPrograms: Map<String, EpgProgram?>,
+    nextPrograms: Map<String, EpgProgram?>,
+    channelViewingTimes: Map<String, Long>,
     fontSize: Float,
     listSize: String,
     uiStyle: String,
-    epgProgressStyle: String = "Wavy",
-    channelNumber: Int? = null,
-    cornerRadius: Int = 22,
-    scaleIntensity: Float = 1.08f,
-    glowEnabled: Boolean = true,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
+    epgProgressStyle: String,
+    showChannelNumbers: Boolean,
+    cardCornerRadius: Int,
+    springScale: Float,
+    expressiveGlow: Boolean,
+    motionBlur: Boolean = false,
+    isLoading: Boolean,
+    onChannelClick: (IptvChannel) -> Unit,
+    onChannelLongClick: (IptvChannel) -> Unit,
+    onPasswordPrompt: (IptvChannel) -> Unit,
+    onUpdateLastChannel: (String) -> Unit
 ) {
-    val isListLayout = listSize in listOf("SimpleList", "CompactList", "CompactList2")
-    val height = when (listSize) {
-        "SimpleList" -> 88.dp
-        "CompactList" -> 68.dp
-        "CompactList2" -> 54.dp
-        "Compact" -> 145.dp
-        "Large", "LargeCards" -> 220.dp
-        "SmallCards" -> 138.dp
-        "NarrowCards" -> 118.dp
-        "SideBySideSmall" -> 132.dp
-        "SideBySideLarge" -> 220.dp
-        "SideBySideHuge" -> 270.dp
-        else -> 185.dp
-    }
-    val cardShape = when (listSize) {
-        "NarrowCards" -> RoundedCornerShape(6.dp)
-        "SmallCards", "SideBySideSmall" -> RoundedCornerShape(10.dp)
-        "LargeCards", "SideBySideLarge", "SideBySideHuge" -> RoundedCornerShape(cornerRadius.dp)
-        else -> if (uiStyle == "LiquidGlass") RoundedCornerShape(24.dp) else RoundedCornerShape(cornerRadius.dp)
-    }
-    val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-    var isFocused by remember { mutableStateOf(false) }
-    var isLongPressHandled by remember { mutableStateOf(false) }
-    var isOkKeyDown by remember { mutableStateOf(false) }
-    var longPressJob by remember { mutableStateOf<Job?>(null) }
-    val keyScope = rememberCoroutineScope()
-
-    Surface(
-        shape = cardShape,
-        tonalElevation = if (isFocused) 8.dp else 1.dp,
-        color = if (uiStyle == "LiquidGlass") Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surface,
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (isListLayout) Modifier.height(height) else Modifier.height(height))
-            .onFocusChanged { isFocused = it.isFocused }
-            .scale(if (isFocused) scaleIntensity else 1f)
-            .border(
-                width = if (isFocused && glowEnabled) 3.dp else 0.dp,
-                color = if (isFocused && glowEnabled) MaterialTheme.colorScheme.primary else Color.Transparent,
-                shape = cardShape
-            )
-            // Handle remote OK before clickable semantics. Some TV remotes do not
-            // emit repeat events, so use a timer rather than relying on repeatCount.
-            .focusable()
-            .onPreviewKeyEvent { event ->
-                val keyCode = event.nativeKeyEvent.keyCode
-                val isConfirm = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                    keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
-                if (!isConfirm) return@onPreviewKeyEvent false
-                when (event.nativeKeyEvent.action) {
-                    KeyEvent.ACTION_DOWN -> {
-                        if (!isOkKeyDown) {
-                            isOkKeyDown = true
-                            isLongPressHandled = false
-                            longPressJob?.cancel()
-                            longPressJob = keyScope.launch {
-                                delay(550)
-                                if (isOkKeyDown && !isLongPressHandled) {
-                                    isLongPressHandled = true
-                                    onLongClick()
-                                }
-                            }
-                        }
-                        true
-                    }
-                    KeyEvent.ACTION_UP -> {
-                        isOkKeyDown = false
-                        longPressJob?.cancel()
-                        longPressJob = null
-                        // Keep the long-press flag until the next ACTION_DOWN so a
-                        // combinedClickable release cannot trigger a normal click and close the menu.
-                        if (!isLongPressHandled) onClick()
-                        true
-                    }
-                    else -> true
-                }
-            }
-            .combinedClickable(
-                onClick = { if (!isLongPressHandled) onClick() },
-                onLongClick = onLongClick
-            )
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (isListLayout) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = if (listSize == "CompactList2") 5.dp else 9.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    AsyncImage(
-                        model = channel.logoUrl,
-                        contentDescription = null,
-                        modifier = Modifier.size(if (listSize == "CompactList2") 34.dp else 48.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                        val displayName = if (channelNumber != null) "#$channelNumber ${channel.name}" else channel.name
-                        Text(displayName, maxLines = 1, fontSize = (if (listSize == "CompactList2") fontSize - 2 else fontSize).sp, fontWeight = FontWeight.Bold)
+    if (isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ExpressiveLoadingIndicator(size = 72.dp) }
+    } else {
+        val gridState = rememberLazyGridState()
+        val isScrolling = gridState.isScrollInProgress
+        val gridColumns = channelGridCells(listSize)
+        LazyVerticalGrid(
+            state = gridState,
+            columns = gridColumns,
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (motionBlur && isScrolling) {
+                        Modifier
+                            .graphicsLayer { alpha = 0.70f }
+                            .blur(28.dp)
+                    } else Modifier
+                ),
+            contentPadding = PaddingValues(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            itemsIndexed(channels) { index, channel ->
+                ChannelCard(
+                    channel = channel,
+                    currentProgram = currentPrograms[channel.url],
+                    nextProgram = nextPrograms[channel.url],
+                    viewingTime = channelViewingTimes[channel.url] ?: 0L,
+                    fontSize = fontSize,
+                    listSize = listSize,
+                    uiStyle = uiStyle,
+                    epgProgressStyle = epgProgressStyle,
+                    channelNumber = if (showChannelNumbers) index + 1 else null,
+                    cornerRadius = cardCornerRadius,
+                    scaleIntensity = springScale,
+                    glowEnabled = expressiveGlow,
+                    onClick = { 
                         if (channel.isLocked) {
-                            Text("🔒", fontSize = 10.sp)
-                        } else if (currentProgram != null) {
-                            Text(currentProgram.title, maxLines = 1, fontSize = (fontSize - 3).coerceAtLeast(8f).sp, color = MaterialTheme.colorScheme.primary)
-                            if (listSize != "CompactList2") Text("${timeFormat.format(currentProgram.start)} - ${timeFormat.format(currentProgram.stop)}", fontSize = (fontSize - 5).coerceAtLeast(8f).sp, color = Color.Gray)
-                        } else if (listSize == "SimpleList") {
-                            Text(stringResource(R.string.no_program_info), maxLines = 1, fontSize = (fontSize - 3).coerceAtLeast(8f).sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            onPasswordPrompt(channel)
+                        } else {
+                            onChannelClick(channel)
+                            onUpdateLastChannel(channel.url)
                         }
-                    }
-                    if (channel.isFavorite) Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(14.dp))
-                    if (channel.isPinned) Icon(Icons.Default.PushPin, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
-                }
-            } else {
-            Column(modifier = Modifier.padding(if (listSize == "NarrowCards") 4.dp else 8.dp).fillMaxSize()) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    AsyncImage(
-                        model = channel.logoUrl,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize().padding(8.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                    val chCatchup = channel.catchup?.trim()?.lowercase(Locale.ROOT)
-                    val isExplicitlyDisabled = chCatchup == "none" || chCatchup == "0" || chCatchup == "false"
-                    val hasCatchup = !isExplicitlyDisabled && (
-                        !channel.catchupSource.isNullOrBlank() ||
-                        !channel.catchup.isNullOrBlank() ||
-                        (channel.catchupDays != null && channel.catchupDays > 0)
-                    )
-                    if (hasCatchup) {
-                        Surface(
-                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp).size(18.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                            shape = RoundedCornerShape(5.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.History,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(4.dp))
-                
-                Text(
-                    text = if (channelNumber != null) "#$channelNumber ${channel.name}" else channel.name,
-                    style = MaterialTheme.typography.titleSmall.copy(fontSize = fontSize.sp),
-                    maxLines = 1,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    },
+                    onLongClick = { onChannelLongClick(channel) }
                 )
-                
-                if (channel.isLocked) {
-                    Icon(Icons.Default.Lock, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
-                } else if (currentProgram != null) {
-                    val now = System.currentTimeMillis()
-                    val total = (currentProgram.endTime - currentProgram.startTime).toFloat()
-                    val progress = if (total > 0) (now - currentProgram.startTime) / total else 0f
-                    
-                    Text(
-                        text = currentProgram.title,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = (fontSize - 2).sp),
-                        maxLines = 1,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "${timeFormat.format(currentProgram.start)} - ${timeFormat.format(currentProgram.stop)}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = (fontSize - 4).sp),
-                        color = Color.Gray
-                    )
-                    
-                    EpgProgressBar(
-                        progress = progress.coerceIn(0f, 1f),
-                        style = epgProgressStyle,
-                        modifier = Modifier.fillMaxWidth().height(6.dp).padding(vertical = 1.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-
-                    if (nextProgram != null) {
-                        Text(
-                            text = "Next: ${nextProgram.title}",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = (fontSize - 4).sp),
-                            maxLines = 1,
-                            color = Color.Gray
-                        )
-                    }
-                } else {
-                    Text(
-                        text = "No programme information",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = (fontSize - 2).sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            }
-            
-            if (viewingTime > 0) {
-                val hours = viewingTime / 3600
-                val minutes = (viewingTime % 3600) / 60
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
-                    shape = CircleShape,
-                    modifier = Modifier.align(Alignment.Center)
-                ) {
-                    Text(
-                        text = String.format(Locale.US, "⏱ %02d:%02d h", hours, minutes),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
-
-            Row(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (channel.isPinned) {
-                    Icon(Icons.Default.PushPin, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                }
-                if (channel.isFavorite) {
-                    Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(16.dp))
-                }
             }
         }
     }
@@ -1882,39 +2121,39 @@ fun ChannelCard(
 
 @Composable
 internal fun ContinueWatchingRow(
-    channels: List<IptvChannel>,
-    viewingTimes: Map<String, Long>,
-    currentPrograms: Map<String, EpgProgram>,
-    nextPrograms: Map<String, EpgProgram>,
-    fontSize: Float,
-    onChannelClick: (IptvChannel) -> Unit,
-    onLongClick: (IptvChannel) -> Unit
-) {
-    val items = com.kraftplay.openiptv.util.continueWatchingChannels(channels, viewingTimes)
-    if (items.isEmpty()) return
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-        Text(
-            text = stringResource(R.string.continue_watching),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(items, key = { it.url }) { channel ->
-                Box(modifier = Modifier.width(200.dp)) {
-                    ChannelCard(
-                        channel = channel,
-                        currentProgram = currentPrograms[channel.url],
-                        nextProgram = nextPrograms[channel.url],
-                        viewingTime = viewingTimes[channel.url] ?: 0L,
-                        fontSize = fontSize,
-                        listSize = "Compact",
-                        uiStyle = "Material",
-                        onClick = { onChannelClick(channel) },
-                        onLongClick = { onLongClick(channel) }
-                    )
+        channels: List<IptvChannel>,
+        viewingTimes: Map<String, Long>,
+        currentPrograms: Map<String, EpgProgram?>,
+        nextPrograms: Map<String, EpgProgram?>,
+        fontSize: Float,
+        onChannelClick: (IptvChannel) -> Unit,
+        onLongClick: (IptvChannel) -> Unit
+    ) {
+        val items = com.kraftplay.openiptv.util.continueWatchingChannels(channels, viewingTimes)
+        if (items.isEmpty()) return
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Text(
+                text = stringResource(R.string.continue_watching),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(items, key = { it.url }) { channel ->
+                    Box(modifier = Modifier.width(200.dp)) {
+                        ChannelCard(
+                            channel = channel,
+                            currentProgram = currentPrograms[channel.url],
+                            nextProgram = nextPrograms[channel.url],
+                            viewingTime = viewingTimes[channel.url] ?: 0L,
+                            fontSize = fontSize,
+                            listSize = "Compact",
+                            uiStyle = "Material",
+                            onClick = { onChannelClick(channel) },
+                            onLongClick = { onLongClick(channel) }
+                        )
+                    }
                 }
             }
         }
     }
-}

@@ -21,7 +21,7 @@ class EpgReminderReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        val title = intent.getStringExtra(EXTRA_PROGRAM_TITLE) ?: "Скоро начнется передача"
+        val title = intent.getStringExtra(EXTRA_PROGRAM_TITLE) ?: com.kraftplay.openiptv.ui.tr("Скоро начнется передача")
         val channelName = intent.getStringExtra(EXTRA_CHANNEL_NAME) ?: "OpenIPTV"
         val channelUrl = intent.getStringExtra(EXTRA_CHANNEL_URL) ?: ""
 
@@ -41,8 +41,8 @@ class EpgReminderReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Скоро начнется: $title")
-            .setContentText("Канал: $channelName")
+            .setContentTitle(com.kraftplay.openiptv.ui.tr("Скоро начнется: {0}", title))
+            .setContentText(com.kraftplay.openiptv.ui.tr("Канал: {0}", channelName))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
@@ -55,8 +55,8 @@ class EpgReminderReceiver : BroadcastReceiver() {
 
     private fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "Напоминания ТВ-передач"
-            val descriptionText = "Уведомления о начале выбранных ТВ-передач"
+            val name = com.kraftplay.openiptv.ui.tr("Напоминания ТВ-передач")
+            val descriptionText = com.kraftplay.openiptv.ui.tr("Уведомления о начале выбранных ТВ-передач")
             val importance = NotificationManager.IMPORTANCE_HIGH
             val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
                 description = descriptionText

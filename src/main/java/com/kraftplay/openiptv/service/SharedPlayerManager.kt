@@ -22,16 +22,42 @@ object SharedPlayerManager {
     @Volatile
     private var player: ExoPlayer? = null
     private var currentBufferingLevel: String = "Standard"
+    private var currentDecoderSetting: String = "Auto"
 
     @Synchronized
     fun getOrCreatePlayer(context: Context, bufferingLevel: String = currentBufferingLevel): ExoPlayer {
         val appContext = context.applicationContext
+        val prefs = appContext.getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        val decoderSetting = prefs.getString("hardware_decoder", "Auto") ?: "Auto"
+
         val existing = player
-        if (existing != null) {
+        if (existing != null && currentDecoderSetting == decoderSetting) {
             return existing
+        } else if (existing != null) {
+            existing.release()
+            player = null
         }
 
+        currentDecoderSetting = decoderSetting
         currentBufferingLevel = bufferingLevel
+
+        val renderersFactory = androidx.media3.exoplayer.DefaultRenderersFactory(appContext).apply {
+            when (decoderSetting) {
+                "Hardware" -> {
+                    setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+                    setEnableDecoderFallback(false)
+                }
+                "Software" -> {
+                    setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+                    setEnableDecoderFallback(true)
+                }
+                else -> { // "Auto"
+                    setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+                    setEnableDecoderFallback(true)
+                }
+            }
+        }
+
         val (minBuffer, maxBuffer) = when (bufferingLevel) {
             "Low" -> 15_000 to 30_000
             "High" -> 50_000 to 120_000
@@ -56,7 +82,7 @@ object SharedPlayerManager {
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
 
-        return ExoPlayer.Builder(appContext)
+        return ExoPlayer.Builder(appContext, renderersFactory)
             .setLoadControl(loadControl)
             .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)

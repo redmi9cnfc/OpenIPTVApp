@@ -22,6 +22,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -139,6 +140,7 @@ fun SettingsScreen(
     val panelColor by viewModel.panelColor.collectAsState()
 
     val expressiveGlow by viewModel.expressiveGlow.collectAsState()
+    val motionBlur by viewModel.motionBlur.collectAsState()
     val waveAmplitude by viewModel.waveAmplitude.collectAsState()
     val waveSpeed by viewModel.waveSpeed.collectAsState()
     val cardCornerRadius by viewModel.cardCornerRadius.collectAsState()
@@ -165,8 +167,22 @@ fun SettingsScreen(
         I18n.apply(language)
     }
 
-    var activePage by remember { mutableStateOf<SettingsPage?>(null) }
+    val savedPageName by viewModel.lastSettingsPage.collectAsState()
+    val initialPage = remember {
+        SettingsPage.entries.find { it.name == savedPageName }
+    }
+    var activePage by remember { mutableStateOf<SettingsPage?>(initialPage) }
     var searchQuery by remember { mutableStateOf("") }
+    val mainListState = rememberLazyListState()
+
+    LaunchedEffect(activePage) {
+        if (activePage == null && savedPageName.isNotBlank()) {
+            val pageIndex = SettingsPage.entries.indexOfFirst { it.name == savedPageName }
+            if (pageIndex >= 0) {
+                mainListState.animateScrollToItem((pageIndex + 2).coerceAtMost(SettingsPage.entries.size))
+            }
+        }
+    }
 
     // Always intercept back press cleanly to navigate subpages first
     BackHandler(enabled = true) {
@@ -174,6 +190,7 @@ fun SettingsScreen(
             searchQuery = ""
         } else if (activePage != null) {
             activePage = null
+            viewModel.updateSetting("last_settings_page", "")
         } else {
             onBack()
         }
@@ -217,6 +234,7 @@ fun SettingsScreen(
     var showAddPlaylistDialog by remember { mutableStateOf(false) }
     var showWifiDeviceTransfer by remember { mutableStateOf(false) }
     var showQrScannerDialog by remember { mutableStateOf(false) }
+    var qrScannerTitle by remember { mutableStateOf("") }
     var showQrExportDialog by remember { mutableStateOf(false) }
     var showReceiveQrDialog by remember { mutableStateOf(false) }
     var showAddEpgDialog by remember { mutableStateOf(false) }
@@ -254,8 +272,10 @@ fun SettingsScreen(
         }
     } else null
 
-    Scaffold(
-        containerColor = Color.Transparent,
+    CompositionLocalProvider(LocalUiStyle provides uiStyle) {
+        StyledBackground(uiStyle = uiStyle) {
+            Scaffold(
+            containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -382,6 +402,7 @@ fun SettingsScreen(
                                 subtitle = "${item.subtitle} • ${item.pageName}",
                                 onClick = {
                                     activePage = item.targetPage
+                                    viewModel.updateSetting("last_settings_page", item.targetPage.name)
                                     searchQuery = ""
                                 },
                                 shapeName = badgeShape,
@@ -394,6 +415,7 @@ fun SettingsScreen(
             } else if (activePage == null) {
                 // Main Category Grid Overview View
                 LazyColumn(
+                    state = mainListState,
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -407,12 +429,13 @@ fun SettingsScreen(
                             stats = listOf(
                                 "Плейлисты" to "${playlists.count { it.enabled }}",
                                 "EPG" to "${epgSources.count { it.enabled }}",
-                                tr("Версия") to "6.0",
+                                tr("Версия") to "6.1",
                                 "Тема" to themeMode
                             ),
                             badgeShape = badgeShape,
                             badgeColorName = badgeColor,
-                            rotationEnabled = iconRotationEnabled
+                            rotationEnabled = iconRotationEnabled,
+                            uiStyle = uiStyle
                         )
                     }
 
@@ -437,10 +460,14 @@ fun SettingsScreen(
                                 SettingsPage.CATEGORIES -> categories.size
                                 else -> 0
                             },
-                            onClick = { activePage = page },
+                            onClick = {
+                                activePage = page
+                                viewModel.updateSetting("last_settings_page", page.name)
+                            },
                             shapeName = badgeShape,
                             badgeColorName = badgeColor,
-                            rotationEnabled = iconRotationEnabled
+                            rotationEnabled = iconRotationEnabled,
+                            uiStyle = uiStyle
                         )
                     }
                 }
@@ -460,7 +487,7 @@ fun SettingsScreen(
                                         subtitle = "Управление списком IPTV провайдеров"
                                     ) {
                                         playlists.forEach { playlist ->
-                                            val displayUrl = if (com.kraftplay.openiptv.model.isKitTvPlaylist(playlist.name, playlist.url, playlist.id)) "" else playlist.url
+                                            val displayUrl = if (hidePlaylistUrl || com.kraftplay.openiptv.model.isKitTvPlaylist(playlist.name, playlist.url, playlist.id)) "" else playlist.url
                                             PlaylistCard(
                                                 name = playlist.name,
                                                 url = displayUrl,
@@ -639,7 +666,8 @@ fun SettingsScreen(
                                             onSelect = { viewModel.updateSetting("language", it) },
                                             shapeName = badgeShape,
                                             badgeColorName = badgeColor,
-                                            rotationEnabled = iconRotationEnabled
+                                            rotationEnabled = iconRotationEnabled,
+                                            uiStyle = uiStyle
                                         )
 
                                         ChoiceItem(
@@ -654,7 +682,8 @@ fun SettingsScreen(
                                             onSelect = { viewModel.updateSetting("ui_style", it) },
                                             shapeName = badgeShape,
                                             badgeColorName = badgeColor,
-                                            rotationEnabled = iconRotationEnabled
+                                            rotationEnabled = iconRotationEnabled,
+                                            uiStyle = uiStyle
                                         )
 
                                         ChoiceItem(
@@ -784,6 +813,17 @@ fun SettingsScreen(
                                             subtitle = "Светящийся контур при нажатии или фокусе",
                                             checked = expressiveGlow,
                                             onCheckedChange = { viewModel.updateSetting("expressive_glow", it) },
+                                            shapeName = badgeShape,
+                                            badgeColorName = badgeColor,
+                                            rotationEnabled = iconRotationEnabled
+                                        )
+
+                                        ToggleItem(
+                                            icon = Icons.Rounded.BlurOn,
+                                            title = tr("Размытие при движении (Motion Blur)"),
+                                            subtitle = tr("Кинематографичный эффект размытия элементов при динамичной прокрутке"),
+                                            checked = motionBlur,
+                                            onCheckedChange = { viewModel.updateSetting("motion_blur", it) },
                                             shapeName = badgeShape,
                                             badgeColorName = badgeColor,
                                             rotationEnabled = iconRotationEnabled
@@ -1299,11 +1339,14 @@ fun SettingsScreen(
                                     SettingsSection(title = "Отображение категорий") {
                                         ChoiceItem(
                                             icon = Icons.Rounded.Folder,
-                                            title = "Режим категорий",
-                                            subtitle = "Внешний вид списка категорий на главном экране",
+                                            title = tr("Режим категорий"),
+                                            subtitle = tr("Внешний вид списка категорий на главном экране"),
                                             options = listOf(
-                                                "Chips" to "Чипы",
-                                                "Folders" to "Папки"
+                                                "Folders" to tr("Папки"),
+                                                "Chips" to tr("Чипы"),
+                                                "Tabs" to tr("Вкладки"),
+                                                "Dropdown" to tr("Выпадающий список"),
+                                                "Sidebar" to tr("Боковая панель")
                                             ),
                                             selected = catDisplayMode,
                                             onSelect = { viewModel.setCategoryDisplayMode(it) },
@@ -1413,12 +1456,15 @@ fun SettingsScreen(
 
                             SettingsPage.BACKUP -> {
                                 item {
-                                    SettingsSection(title = "Резервная копия, сеть и QR-коды") {
+                                    SettingsSection(title = tr("Резервная копия, сеть и QR-коды")) {
                                         ActionItem(
                                             icon = Icons.Rounded.QrCodeScanner,
-                                            title = "Принять настройки по QR-коду (Сканировать)",
-                                            subtitle = "Включить мини-камеру для сканирования и импорта ВСЕХ настроек, плейлистов и EPG",
-                                            onClick = { showQrScannerDialog = true },
+                                            title = tr("Принять настройки по QR-коду (Сканировать)"),
+                                            subtitle = tr("Включить мини-камеру для сканирования и импорта ВСЕХ настроек, плейлистов и EPG"),
+                                            onClick = {
+                                                qrScannerTitle = tr("Принять настройки по QR-коду (Сканировать)")
+                                                showQrScannerDialog = true
+                                            },
                                             shapeName = badgeShape,
                                             badgeColorName = badgeColor,
                                             rotationEnabled = iconRotationEnabled
@@ -1426,8 +1472,8 @@ fun SettingsScreen(
 
                                         ActionItem(
                                             icon = Icons.Rounded.QrCodeScanner,
-                                            title = "Принять настройки по QR-коду (Показать QR)",
-                                            subtitle = "Показать QR-код для получения ВСЕХ настроек, плейлистов и EPG со второго устройства",
+                                            title = tr("Принять настройки по QR-коду (Показать QR)"),
+                                            subtitle = tr("Показать QR-код для получения ВСЕХ настроек, плейлистов и EPG со второго устройства"),
                                             onClick = { showReceiveQrDialog = true },
                                             shapeName = badgeShape,
                                             badgeColorName = badgeColor,
@@ -1436,9 +1482,22 @@ fun SettingsScreen(
 
                                         ActionItem(
                                             icon = Icons.Rounded.QrCode,
-                                            title = "Отдать настройки по QR-коду (Показать)",
-                                            subtitle = "Сгенерировать QR-код для передачи ВСЕХ настроек, плейлистов и EPG на другое устройство",
+                                            title = tr("Отдать настройки по QR-коду (Показать)"),
+                                            subtitle = tr("Сгенерировать QR-код для передачи ВСЕХ настроек, плейлистов и EPG на другое устройство"),
                                             onClick = { showQrExportDialog = true },
+                                            shapeName = badgeShape,
+                                            badgeColorName = badgeColor,
+                                            rotationEnabled = iconRotationEnabled
+                                        )
+
+                                        ActionItem(
+                                            icon = Icons.Rounded.QrCodeScanner,
+                                            title = tr("Отдать настройки по QR-коду (Сканировать)"),
+                                            subtitle = tr("Сканировать QR-код второго устройства для автоматической отправки ему ВСЕХ настроек, плейлистов и EPG"),
+                                            onClick = {
+                                                qrScannerTitle = tr("Отдать настройки по QR-коду (Сканировать)")
+                                                showQrScannerDialog = true
+                                            },
                                             shapeName = badgeShape,
                                             badgeColorName = badgeColor,
                                             rotationEnabled = iconRotationEnabled
@@ -1470,7 +1529,7 @@ fun SettingsScreen(
 
                                         ActionItem(
                                             icon = Icons.Rounded.Wifi,
-                                            title = "Передача по Wi-Fi / QR",
+                                            title = "Передача по WIFI и QR-коду",
                                             subtitle = "Передача настроек между устройствами по локальной сети или QR",
                                             onClick = { showWifiDeviceTransfer = true },
                                             shapeName = badgeShape,
@@ -1480,8 +1539,8 @@ fun SettingsScreen(
 
                                         ActionItem(
                                             icon = Icons.Rounded.CleaningServices,
-                                            title = androidx.compose.ui.res.stringResource(R.string.clear_cache),
-                                            subtitle = androidx.compose.ui.res.stringResource(R.string.clear_cache_subtitle),
+                                            title = "Очистить кэш",
+                                            subtitle = "Освободить временные файлы без удаления плейлистов и настроек",
                                             onClick = { showClearCacheDialog = true },
                                             shapeName = badgeShape,
                                             badgeColorName = badgeColor,
@@ -1582,7 +1641,7 @@ fun SettingsScreen(
 
                                         ActionItem(
                                             icon = Icons.Rounded.Info,
-                                            title = tr("Версия {0}", "6.0"),
+                                            title = tr("Версия {0}", "6.1"),
                                             subtitle = "OpenIPTV • Material You 3 Expressive",
                                             onClick = {},
                                             shapeName = badgeShape,
@@ -1854,7 +1913,11 @@ fun SettingsScreen(
             }
 
             if (showQrScannerDialog) {
-                QrCodeScannerDialog(viewModel = viewModel, onDismiss = { showQrScannerDialog = false })
+                QrCodeScannerDialog(
+                    viewModel = viewModel,
+                    title = qrScannerTitle.ifBlank { tr("Принять настройки по QR (Сканер)") },
+                    onDismiss = { showQrScannerDialog = false }
+                )
             }
 
             if (showQrExportDialog) {
@@ -1986,6 +2049,8 @@ fun SettingsScreen(
             }
         }
     }
+}
+}
 }
 }
 

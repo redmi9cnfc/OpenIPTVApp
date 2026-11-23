@@ -7,6 +7,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.widget.Toast
+import com.kraftplay.openiptv.ui.tr
 import java.util.Locale
 
 object VoiceInputHelper {
@@ -15,7 +16,7 @@ object VoiceInputHelper {
         return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().language)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Произнесите название канала...")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, tr("Произнесите название канала..."))
         }
     }
 
@@ -39,7 +40,7 @@ object VoiceInputHelper {
 
         // 2. Использование программного SpeechRecognizer
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            val msg = "Голосовой ввод недоступен на этом устройстве"
+            val msg = tr("Голосовой ввод недоступен на этом устройстве")
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             onError?.invoke(msg)
             return
@@ -61,10 +62,10 @@ object VoiceInputHelper {
 
                 override fun onError(error: Int) {
                     val errorMsg = when (error) {
-                        SpeechRecognizer.ERROR_NO_MATCH -> "Речь не распознана"
-                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Превышено время ожидания"
-                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Необходимы разрешения для микрофона"
-                        else -> "Ошибка распознавания речи"
+                        SpeechRecognizer.ERROR_NO_MATCH -> tr("Речь не распознана")
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> tr("Превышено время ожидания")
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> tr("Необходимы разрешения для микрофона")
+                        else -> tr("Ошибка распознавания речи")
                     }
                     Toast.makeText(context, errorMsg, Toast.LENGTH_SHORT).show()
                     onError?.invoke(errorMsg)
@@ -87,7 +88,7 @@ object VoiceInputHelper {
 
             speechRecognizer.startListening(fallbackIntent)
         } catch (e: Exception) {
-            val msg = "Ошибка голосового ввода: ${e.localizedMessage}"
+            val msg = tr("Ошибка голосового ввода: {0}", e.localizedMessage)
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             onError?.invoke(msg)
         }

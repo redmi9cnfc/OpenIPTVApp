@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 
 val LocalIsAuto = staticCompositionLocalOf { false }
+val LocalUiStyle = staticCompositionLocalOf { "Material3" }
 
 @Composable
 fun InPageDialog(
@@ -119,8 +120,8 @@ fun StyledCard(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.88f),
-                            Color.Black.copy(alpha = 0.78f)
+                            Color.White.copy(alpha = 0.10f),
+                            Color.White.copy(alpha = 0.04f)
                         )
                     )
                 )
@@ -128,9 +129,8 @@ fun StyledCard(
                     width = 1.dp,
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = 0.25f),
-                            Color.Transparent,
-                            Color.White.copy(alpha = 0.1f)
+                            Color.White.copy(alpha = 0.35f),
+                            Color.White.copy(alpha = 0.08f)
                         )
                     ),
                     shape = RoundedCornerShape(28.dp)
@@ -161,22 +161,6 @@ fun StyledBackground(
     content: @Composable () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        if (uiStyle == "LiquidGlass") {
-            // Dynamic blobs or gradients for glass effect
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                Color.Transparent
-                            ),
-                            radius = 2000f
-                        )
-                    )
-            )
-        }
         content()
     }
 }

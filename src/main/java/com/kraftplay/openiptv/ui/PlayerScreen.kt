@@ -166,7 +166,19 @@ fun PlayerScreen(
     val playbackSpeed by viewModel.playbackSpeed.collectAsState()
     val audioVolumeBoost by viewModel.audioVolumeBoost.collectAsState()
 
-    val activity = context as? Activity
+    val activity = remember(context) { context.findActivity() }
+
+    LaunchedEffect(activity, forceLandscape) {
+        if (forceLandscape && activity != null) {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
+    }
+
+    SideEffect {
+        if (forceLandscape && activity != null) {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
+    }
 
     fun applyImmersiveMode() {
         val window = activity?.window ?: return
@@ -186,15 +198,15 @@ fun PlayerScreen(
     }
 
     DisposableEffect(activity, lifecycleOwner, forceLandscape) {
-        val previousOrientation = activity?.requestedOrientation
+        val previousOrientation = activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         val window = activity?.window
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) applyImmersiveMode()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         applyImmersiveMode()
-        if (forceLandscape) {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        if (forceLandscape && activity != null) {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
@@ -205,8 +217,9 @@ fun PlayerScreen(
                 val controller = WindowInsetsControllerCompat(window, window.decorView)
                 controller.show(WindowInsetsCompat.Type.systemBars())
             }
-            activity?.requestedOrientation = previousOrientation
-                ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            if (forceLandscape && activity != null) {
+                activity.requestedOrientation = previousOrientation
+            }
         }
     }
 
@@ -1667,6 +1680,18 @@ private fun formatPlaybackTime(positionMs: Long): String {
     val hours = totalSeconds / 3600L
     val minutes = (totalSeconds % 3600L) / 60L
     val seconds = totalSeconds % 60L
-    return if (hours > 0L) String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, seconds)
-    else String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+    return if (hours > 0) {
+        String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.US, "%02d:%02d", minutes, seconds)
+    }
+}
+
+fun android.content.Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }

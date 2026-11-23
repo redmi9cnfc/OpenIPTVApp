@@ -28,6 +28,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import com.kraftplay.openiptv.ui.tr
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -106,15 +107,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val viewModel: MainViewModel = viewModel()
             val fullScreenEnabled by viewModel.fullScreenByDefault.collectAsState()
-            val forceLandscape by viewModel.forceLandscape.collectAsState()
 
             SideEffect {
                 fullScreenEnabledForWindow = fullScreenEnabled
-                if (forceLandscape) {
-                    this@MainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                } else if (this@MainActivity.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) {
-                    this@MainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                }
                 applyAppSystemBars()
             }
 
@@ -218,7 +213,7 @@ fun OpenIptvRootContent(
             contract = ActivityResultContracts.RequestPermission()
         ) { isGranted ->
             if (!isGranted) {
-                Toast.makeText(context, "Уведомления отключены — напоминания о передачах не смогут приходить", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, tr("Уведомления отключены — напоминания о передачах не смогут приходить"), Toast.LENGTH_LONG).show()
             }
         }
 

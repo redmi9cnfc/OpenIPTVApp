@@ -146,7 +146,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedCategory = MutableStateFlow("All")
     val selectedCategory: StateFlow<String> = _selectedCategory
 
-    val categoryDisplayMode = MutableStateFlow(prefs.getString("category_display_mode", "Chips") ?: "Chips")
+    val categoryDisplayMode = MutableStateFlow(prefs.getString("category_display_mode", "Folders") ?: "Folders")
     val selectedFolder = MutableStateFlow<String?>(null)
     val customThemeJson = MutableStateFlow(prefs.getString("custom_theme_json", "") ?: "")
     
@@ -221,7 +221,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val showClock = MutableStateFlow(prefs.getBoolean("show_clock", true))
     val clockPosition = MutableStateFlow(prefs.getString("clock_position", "Top right") ?: "Top right")
     val language = MutableStateFlow(prefs.getString("language", if (Locale.getDefault().language == "ru") "ru" else "en") ?: if (Locale.getDefault().language == "ru") "ru" else "en")
-    val hidePlaylistUrl = MutableStateFlow(prefs.getBoolean("hide_playlist_url", false))
+    val hidePlaylistUrl = MutableStateFlow(prefs.getBoolean("hide_playlist_url", true))
+    val lastSettingsPage = MutableStateFlow(prefs.getString("last_settings_page", "") ?: "")
     val listSize = MutableStateFlow(prefs.getString("list_size", "Standard") ?: "Standard")
     val themeMode = MutableStateFlow(prefs.getString("theme_mode", "Dark") ?: "Dark")
     val accentColor = MutableStateFlow(prefs.getString("accent_color", "Blue") ?: "Blue")
@@ -239,6 +240,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val panelColor = MutableStateFlow(prefs.getString("panel_color", "Auto") ?: "Auto")
 
     val expressiveGlow = MutableStateFlow(prefs.getBoolean("expressive_glow", true))
+    val motionBlur = MutableStateFlow(prefs.getBoolean("motion_blur", false))
     val waveAmplitude = MutableStateFlow(prefs.getFloat("wave_amplitude", 0.08f))
     val waveSpeed = MutableStateFlow(prefs.getFloat("wave_speed", 1.0f))
     val cardCornerRadius = MutableStateFlow(prefs.getInt("card_corner_radius", 22))
@@ -1331,6 +1333,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "show_channel_numbers" -> showChannelNumbers.value = value
                     "volume_gesture_enabled" -> volumeGestureEnabled.value = value
                     "expressive_glow" -> expressiveGlow.value = value
+                    "motion_blur" -> motionBlur.value = value
                     "ambient_canvas" -> ambientCanvas.value = value
                     "icon_rotation_enabled" -> iconRotationEnabled.value = value
                 }
@@ -1370,6 +1373,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "badge_color" -> badgeColor.value = value
                     "panel_color" -> panelColor.value = value
                     "ui_style" -> uiStyle.value = value
+                    "last_settings_page" -> lastSettingsPage.value = value
                     "category_display_mode" -> categoryDisplayMode.value = value
                     "catchup_mode" -> catchupMode.value = value
                     "aspect_ratio_mode" -> aspectRatioMode.value = value

@@ -130,7 +130,7 @@ public class MirrorProjectionService extends Service {
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("OpenMirror")
-            .setContentText("Трансляция экрана на магнитолу")
+            .setContentText(getString(R.string.mirror_notification_text))
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

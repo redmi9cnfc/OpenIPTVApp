@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -328,7 +329,8 @@ fun HeroCard(
     stats: List<Pair<String, String>> = emptyList(),
     badgeShape: String = "Cookie",
     badgeColorName: String = "Purple",
-    rotationEnabled: Boolean = true
+    rotationEnabled: Boolean = true,
+    uiStyle: String = "Material3"
 ) {
     val cs = MaterialTheme.colorScheme
     val infiniteTransition = rememberInfiniteTransition(label = "heroRotTransition")
@@ -355,11 +357,22 @@ fun HeroCard(
     )
     val spec = remember(badgeShape) { WavySpec(parseShapeProfile(badgeShape), 10, 0.09f) }
 
+    val activeUiStyle = if (uiStyle == "LiquidGlass" || LocalUiStyle.current == "LiquidGlass") "LiquidGlass" else "Material3"
+
     Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(28.dp))
-            .background(container)
+            .background(if (activeUiStyle == "LiquidGlass") container.copy(alpha = 0.35f) else container)
+            .then(
+                if (activeUiStyle == "LiquidGlass") {
+                    Modifier.border(
+                        1.dp,
+                        Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.35f), Color.White.copy(alpha = 0.06f))),
+                        RoundedCornerShape(28.dp)
+                    )
+                } else Modifier
+            )
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -427,6 +440,7 @@ fun GroupItem(
     onClick: (() -> Unit)? = null,
     glowEnabled: Boolean = true,
     cornerRadiusDp: Int = 22,
+    uiStyle: String = "Material3",
     content: @Composable ColumnScope.() -> Unit
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -444,11 +458,27 @@ fun GroupItem(
         label = "glowAlpha"
     )
 
+    val activeUiStyle = if (uiStyle == "LiquidGlass" || LocalUiStyle.current == "LiquidGlass") "LiquidGlass" else "Material3"
+
     Column(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(corner))
-            .background(cs.surfaceContainerHigh)
+            .background(if (activeUiStyle == "LiquidGlass") cs.surfaceContainerHigh.copy(alpha = 0.30f) else cs.surfaceContainerHigh)
+            .then(
+                if (activeUiStyle == "LiquidGlass") {
+                    Modifier.border(
+                        width = 1.dp,
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.35f),
+                                Color.White.copy(alpha = 0.06f)
+                            )
+                        ),
+                        shape = RoundedCornerShape(corner)
+                    )
+                } else Modifier
+            )
             .then(
                 if (glowAlpha > 0f) {
                     Modifier.border(2.dp, cs.primary.copy(alpha = glowAlpha), RoundedCornerShape(corner))
@@ -578,9 +608,10 @@ fun ToggleItem(
     onCheckedChange: (Boolean) -> Unit,
     shapeName: String = "Cookie",
     badgeColorName: String = "Purple",
-    rotationEnabled: Boolean = true
+    rotationEnabled: Boolean = true,
+    uiStyle: String = "Material3"
 ) {
-    GroupItem(onClick = { onCheckedChange(!checked) }) {
+    GroupItem(onClick = { onCheckedChange(!checked) }, uiStyle = uiStyle) {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -612,9 +643,10 @@ fun ActionItem(
     trailing: (@Composable () -> Unit)? = null,
     shapeName: String = "Cookie",
     badgeColorName: String = "Purple",
-    rotationEnabled: Boolean = true
+    rotationEnabled: Boolean = true,
+    uiStyle: String = "Material3"
 ) {
-    GroupItem(onClick = onClick) {
+    GroupItem(onClick = onClick, uiStyle = uiStyle) {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -646,7 +678,8 @@ fun SliderItem(
     steps: Int = 0,
     shapeName: String = "Cookie",
     badgeColorName: String = "Purple",
-    rotationEnabled: Boolean = true
+    rotationEnabled: Boolean = true,
+    uiStyle: String = "Material3"
 ) {
     var local by remember(value) { mutableFloatStateOf(value) }
     var isFocused by remember { mutableStateOf(false) }
@@ -656,7 +689,7 @@ fun SliderItem(
         else (range.endInclusive - range.start) / 20f
     }
 
-    GroupItem {
+    GroupItem(uiStyle = uiStyle) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -730,7 +763,8 @@ fun SliderItem(
 fun ButtonGroup(
     options: List<Pair<String, String>>,
     selected: String,
-    onSelect: (String) -> Unit
+    onSelect: (String) -> Unit,
+    uiStyle: String = "Material3"
 ) {
     val cs = MaterialTheme.colorScheme
     FlowRow(
@@ -751,16 +785,17 @@ fun ButtonGroup(
                 spring(dampingRatio = 0.6f, stiffness = 500f),
                 label = "buttonCorner"
             )
-            val bg by animateColorAsState(
-                if (isSel) cs.primary else cs.secondaryContainer,
-                spring(dampingRatio = 0.7f, stiffness = 500f),
-                label = "buttonBg"
-            )
-            val textColor by animateColorAsState(
-                if (isSel) cs.onPrimary else cs.onSecondaryContainer,
-                spring(dampingRatio = 0.7f, stiffness = 500f),
-                label = "buttonTextColor"
-            )
+            val activeUiStyle = if (uiStyle == "LiquidGlass" || LocalUiStyle.current == "LiquidGlass") "LiquidGlass" else "Material3"
+            val bg = if (activeUiStyle == "LiquidGlass") {
+                if (isSel) cs.primary.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.08f)
+            } else {
+                if (isSel) cs.primary else cs.secondaryContainer
+            }
+            val textColor = if (activeUiStyle == "LiquidGlass") {
+                if (isSel) cs.onPrimary else cs.onSurface
+            } else {
+                if (isSel) cs.onPrimary else cs.onSecondaryContainer
+            }
 
             Box(
                 Modifier
@@ -768,6 +803,15 @@ fun ButtonGroup(
                     .heightIn(min = 40.dp)
                     .clip(RoundedCornerShape(corner))
                     .background(bg)
+                    .then(
+                        if (activeUiStyle == "LiquidGlass") {
+                            Modifier.border(
+                                width = 1.dp,
+                                color = if (isSel) cs.primary else Color.White.copy(alpha = 0.20f),
+                                shape = RoundedCornerShape(corner)
+                            )
+                        } else Modifier
+                    )
                     .clickable { onSelect(id) }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
@@ -797,15 +841,16 @@ fun ChoiceItem(
     onSelect: (String) -> Unit,
     shapeName: String = "Cookie",
     badgeColorName: String = "Purple",
-    rotationEnabled: Boolean = true
+    rotationEnabled: Boolean = true,
+    uiStyle: String = "Material3"
 ) {
-    GroupItem {
+    GroupItem(uiStyle = uiStyle) {
         Column(
             Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             ItemTitle(icon, title, subtitle, shapeName = shapeName, badgeColorName = badgeColorName, rotationEnabled = rotationEnabled)
-            ButtonGroup(options, selected, onSelect)
+            ButtonGroup(options, selected, onSelect, uiStyle = uiStyle)
         }
     }
 }
@@ -819,7 +864,8 @@ fun CategoryTile(
     onClick: () -> Unit,
     shapeName: String = "Cookie",
     badgeColorName: String = "Purple",
-    rotationEnabled: Boolean = true
+    rotationEnabled: Boolean = true,
+    uiStyle: String = "Material3"
 ) {
     val cs = MaterialTheme.colorScheme
     val overrideContainer = getBadgeColor(badgeColorName, cs.primaryContainer)
@@ -850,11 +896,27 @@ fun CategoryTile(
         label = "tileCorner"
     )
 
+    val activeUiStyle = if (uiStyle == "LiquidGlass" || LocalUiStyle.current == "LiquidGlass") "LiquidGlass" else "Material3"
+
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(corner))
-            .background(cs.surfaceContainerHigh)
+            .background(if (activeUiStyle == "LiquidGlass") cs.surfaceContainerHigh.copy(alpha = 0.30f) else cs.surfaceContainerHigh)
+            .then(
+                if (activeUiStyle == "LiquidGlass") {
+                    Modifier.border(
+                        width = 1.dp,
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.35f),
+                                Color.White.copy(alpha = 0.06f)
+                            )
+                        ),
+                        shape = RoundedCornerShape(corner)
+                    )
+                } else Modifier
+            )
             .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,

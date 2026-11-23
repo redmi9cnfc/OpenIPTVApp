@@ -26,7 +26,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.R;
+import com.kraftplay.openiptv.R;
 
 import com.google.android.apps.auto.sdk.CarActivity;
 
@@ -68,7 +68,7 @@ public class OpenIptvMirrorActivity extends CarActivity implements SurfaceHolder
     @SuppressLint("ClickableViewAccessibility")
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        setTheme(R.style.Theme_AppCompat_NoActionBar);
+        setTheme(androidx.appcompat.R.style.Theme_AppCompat_NoActionBar);
         super.onCreate(savedInstanceState);
 
         SharedPreferences prefs = getSharedPreferences("com.kraftplay.openiptv_preferences", MODE_PRIVATE);
@@ -139,10 +139,10 @@ public class OpenIptvMirrorActivity extends CarActivity implements SurfaceHolder
         statusText = new TextView(getCtx());
         statusText.setTextColor(Color.WHITE);
         statusText.setTextSize(15f);
-        statusText.setText("Разблокируйте телефон и подтвердите трансляцию экрана");
+        statusText.setText(getString(R.string.mirror_unlock_phone));
 
         Button actionBtn = new Button(getCtx());
-        actionBtn.setText("Включить управление");
+        actionBtn.setText(getString(R.string.mirror_enable_control));
         actionBtn.setOnClickListener(v -> {
             Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -184,10 +184,10 @@ public class OpenIptvMirrorActivity extends CarActivity implements SurfaceHolder
 
         if (!hasProjection) {
             statusBanner.setVisibility(View.VISIBLE);
-            statusText.setText("Подтвердите трансляцию экрана на телефоне");
+            statusText.setText(getString(R.string.mirror_confirm_projection));
         } else if (!hasTouch) {
             statusBanner.setVisibility(View.VISIBLE);
-            statusText.setText("Для нажатий с магнитолы включите OpenIPTV в Спец. возможностях");
+            statusText.setText(getString(R.string.mirror_enable_accessibility));
         } else {
             statusBanner.setVisibility(View.GONE);
         }

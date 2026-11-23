@@ -269,4 +269,11 @@
     <string name="archive_no_metadata">The playlist has no EPG or archive metadata. You can try the standard Flussonic archive; it will work only if the provider records this channel.</string>
     <string name="archive_rewind_hours">Rewind %1$d hours</string>
     <string name="no_audio_tracks">No audio tracks available</string>
+
+    <!-- OpenMirror Strings -->
+    <string name="mirror_notification_text">Screen mirroring to head unit</string>
+    <string name="mirror_unlock_phone">Unlock phone and confirm screen projection</string>
+    <string name="mirror_enable_control">Enable touch control</string>
+    <string name="mirror_confirm_projection">Confirm screen projection on phone</string>
+    <string name="mirror_enable_accessibility">To enable touch input from head unit, enable OpenIPTV in Accessibility settings</string>
 </resources>

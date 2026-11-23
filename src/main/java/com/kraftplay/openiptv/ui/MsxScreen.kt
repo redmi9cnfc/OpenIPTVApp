@@ -79,7 +79,7 @@ fun MsxScreen(
         if (targetUrl.isBlank()) return
         val finalUrl = if (targetUrl.startsWith("http://", ignoreCase = true) || targetUrl.startsWith("https://", ignoreCase = true)) targetUrl else "http://$targetUrl"
         isLoading = true
-        statusText = "Загрузка MSX портала..."
+        statusText = tr("Загрузка MSX портала...")
         scope.launch(Dispatchers.IO) {
             val result = runCatching {
                 val conn = (URL(finalUrl).openConnection() as HttpURLConnection).apply {
@@ -117,10 +117,10 @@ fun MsxScreen(
                     if (it.isEmpty()) {
                         onLaunchUrl(finalUrl)
                     } else {
-                        statusText = "Загружено MSX приложений: ${it.size}"
+                        statusText = tr("Загружено MSX приложений: {0}", it.size)
                     }
                 }.onFailure {
-                    statusText = "Портал открыт напрямую"
+                    statusText = tr("Портал открыт напрямую")
                     onLaunchUrl(finalUrl)
                 }
             }
@@ -156,7 +156,7 @@ fun MsxScreen(
                         Column {
                             Text("Media Station X", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = Color.White)
                             Text(
-                                if (savedStartUrl.isBlank()) "Введите стартовый параметр" else savedStartUrl,
+                                if (savedStartUrl.isBlank()) tr("Введите стартовый параметр") else savedStartUrl,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.Gray,
                                 maxLines = 1,
@@ -167,7 +167,7 @@ fun MsxScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Назад", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = tr("Назад"), tint = Color.White)
                     }
                 },
                 actions = {
@@ -178,7 +178,7 @@ fun MsxScreen(
                             parsedItems = emptyList()
                             statusText = ""
                         }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Изменить стартовый параметр", tint = Color.White)
+                            Icon(Icons.Default.Edit, contentDescription = tr("Изменить стартовый параметр"), tint = Color.White)
                         }
                     }
                 },
@@ -218,7 +218,7 @@ fun MsxScreen(
                         )
 
                         Text(
-                            text = "Для работы выберите или введите ваш стартовый параметр (Start Parameter) / ссылку на портал приложения.",
+                            text = tr("Для работы выберите или введите ваш стартовый параметр (Start Parameter) / ссылку на портал MSX (Media Station X):"),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.LightGray,
                             textAlign = TextAlign.Center
@@ -231,7 +231,7 @@ fun MsxScreen(
                             OutlinedTextField(
                                 value = startUrlInput,
                                 onValueChange = { startUrlInput = it },
-                                placeholder = { Text("например: msx.benzac.de или ваша ссылка", color = Color.Gray) },
+                                placeholder = { Text(tr("например: msx.benzac.de или ваша ссылка"), color = Color.Gray) },
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -247,7 +247,7 @@ fun MsxScreen(
                             IconButton(onClick = {
                                 showKeyboardDialog = true
                             }) {
-                                Icon(Icons.Default.Search, contentDescription = "Клавиатура", tint = Color.White)
+                                Icon(Icons.Default.Search, contentDescription = tr("Клавиатура"), tint = Color.White)
                             }
 
                             IconButton(onClick = {
@@ -260,7 +260,7 @@ fun MsxScreen(
                                     }
                                 )
                             }) {
-                                Icon(Icons.Default.Mic, contentDescription = "Голосовой ввод", tint = Color(0xFF00A2E8))
+                                Icon(Icons.Default.Mic, contentDescription = tr("Голосовой ввод"), tint = Color(0xFF00A2E8))
                             }
                         }
 
@@ -277,7 +277,7 @@ fun MsxScreen(
                             shape = RoundedCornerShape(16.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A2E8))
                         ) {
-                            Text("Указать стартовый параметр", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text(tr("Указать стартовый параметр"), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
 
                         Spacer(Modifier.height(8.dp))
@@ -293,7 +293,7 @@ fun MsxScreen(
                                 },
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text("msx.benzac.de (Официальный)", color = Color.LightGray)
+                                Text(tr("msx.benzac.de (Официальный)"), color = Color.LightGray)
                             }
                             OutlinedButton(
                                 onClick = {

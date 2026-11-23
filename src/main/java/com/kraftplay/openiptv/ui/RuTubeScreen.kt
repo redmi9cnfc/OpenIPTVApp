@@ -120,7 +120,7 @@ fun RuTubeScreen(onBack: () -> Unit) {
                             }) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                    contentDescription = "Назад к каналам",
+                                    contentDescription = tr("Назад к каналам"),
                                     tint = Color.White
                                 )
                             }
@@ -146,7 +146,7 @@ fun RuTubeScreen(onBack: () -> Unit) {
                             }) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
-                                    contentDescription = "Клавиатура поиска RuTube",
+                                    contentDescription = tr("Клавиатура поиска RuTube"),
                                     tint = Color.White
                                 )
                             }
@@ -161,7 +161,7 @@ fun RuTubeScreen(onBack: () -> Unit) {
                             }) {
                                 Icon(
                                     imageVector = Icons.Default.Mic,
-                                    contentDescription = "Голосовой поиск RuTube",
+                                    contentDescription = tr("Голосовой поиск RuTube"),
                                     tint = Color.White
                                 )
                             }
@@ -171,7 +171,7 @@ fun RuTubeScreen(onBack: () -> Unit) {
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.ChevronLeft,
-                                    contentDescription = "Назад в браузере",
+                                    contentDescription = tr("Назад в браузере"),
                                     tint = if (canGoBack) Color.White else Color.Gray
                                 )
                             }
@@ -181,7 +181,7 @@ fun RuTubeScreen(onBack: () -> Unit) {
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.ChevronRight,
-                                    contentDescription = "Вперед в браузере",
+                                    contentDescription = tr("Вперед в браузере"),
                                     tint = if (canGoForward) Color.White else Color.Gray
                                 )
                             }
@@ -190,14 +190,14 @@ fun RuTubeScreen(onBack: () -> Unit) {
                             }) {
                                 Icon(
                                     imageVector = Icons.Rounded.Home,
-                                    contentDescription = "Главная RuTube",
+                                    contentDescription = tr("Главная RuTube"),
                                     tint = Color.White
                                 )
                             }
                             IconButton(onClick = { webView?.reload() }) {
                                 Icon(
                                     imageVector = Icons.Rounded.Refresh,
-                                    contentDescription = "Обновить страницу",
+                                    contentDescription = tr("Обновить страницу"),
                                     tint = Color.White
                                 )
                             }
